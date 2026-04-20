@@ -39,21 +39,21 @@ star-word 做两件事：
 ## 快速开始（30 秒）
 
 ```bash
-# 1. 安装
-pip install star-word       # 或从源码：pip install git+https://github.com/Stargod-0812/star-word.git@main#subdirectory=packages/python
+# 1. 从源码安装（v0.1.0 暂未发布到 PyPI，v0.2 会发）
+pip install “git+https://github.com/Stargod-0812/star-word.git@v0.1.0#subdirectory=packages/python”
 
 # 2. 全局启用 Claude Code（所有项目生效）
 star-word enable claude-code --global
 
 # 3. 验证（新开 Claude Code 会话）
-#    问 "star-word 在生效吗？"
-#    应答："star-word v0.1.0 active: 21 条中文技术写作规则..."
+#    问 “star-word 在生效吗？”
+#    应答：”star-word v0.1.0 active: 21 条中文技术写作规则...”
 
 # 4. 审阅一份文档
 star-word review examples/before.md
 ```
 
-若没装 Python，也可用 curl 方式（见下文“免安装路径”）。
+若没装 Python，也可用 curl 方式（见下文”免安装路径”）。
 
 ---
 
