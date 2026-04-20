@@ -238,15 +238,6 @@ star-word/
 
 ---
 
-## 归属
-
-- 工程结构与 adapter 分发机制参考 [yzhao062/agent-style](https://github.com/yzhao062/agent-style)（CC-BY-4.0 + MIT），致谢。
-- star-word 的规则内容、禁用词清单、检测器实现、中文语感原则均为独立设计，针对中文 LLM 输出的 AI 味问题。
-
-见 [`NOTICE.md`](./NOTICE.md) 与 [`LICENSE`](./LICENSE)。
-
----
-
 ## 许可证
 
 - 代码（`packages/`）：MIT
