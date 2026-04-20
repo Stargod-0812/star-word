@@ -1,0 +1,48 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "star-word"
+version = "0.1.0"
+description = "中文技术写作规则集（21 条）. Drop-in for Claude Code, Codex, Cursor, AGENTS.md-compatible agents."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Stargod-0812" }]
+keywords = ["writing", "chinese", "linter", "claude-code", "agent", "rules", "llm"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Natural Language :: Chinese (Simplified)",
+    "Topic :: Text Processing :: Linguistic",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/Stargod-0812/star-word"
+Repository = "https://github.com/Stargod-0812/star-word"
+Issues = "https://github.com/Stargod-0812/star-word/issues"
+
+[project.scripts]
+star-word = "star_word.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["star_word*"]
+
+[tool.setuptools.package-data]
+star_word = ["data/**/*.md", "data/**/*.json"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
