@@ -21,6 +21,18 @@ def _print_human(r: installer.InstallResult) -> None:
         print(f"  备注: {r.notes}")
 
 
+def _handshake_text() -> str:
+    counts = {"词": 0, "式": 0, "气": 0}
+    for result in detectors.review(""):
+        prefix = result.rule_id.split("-", 1)[0]
+        if prefix in counts:
+            counts[prefix] += 1
+    return (
+        f"已加载 star-word v{__version__}：词表 {counts['词']} 条，"
+        f"结构 {counts['式']} 条，判断 {counts['气']} 条。规则正文见 .sw/rules.md。"
+    )
+
+
 def cmd_enable(args: argparse.Namespace) -> int:
     try:
         r = installer.enable(args.surface, global_scope=args.global_)
@@ -114,15 +126,7 @@ def cmd_review(args: argparse.Namespace) -> int:
 
 def cmd_handshake(args: argparse.Namespace) -> int:
     """打印自检 handshake 字符串（与 adapter 里写的一致）."""
-    # 直接从数据文件里读 handshake 文本（来自 rules.yaml）
-    word_count = 8
-    shape_count = 7
-    sense_count = 6
-    text = (
-        f"已加载 star-word v{__version__}：词表 {word_count} 条，"
-        f"结构 {shape_count} 条，判断 {sense_count} 条。规则正文见 .sw/rules.md。"
-    )
-    print(text)
+    print(_handshake_text())
     return 0
 
 
