@@ -29,8 +29,9 @@ def test_cli_surfaces_json():
     data = json.loads(r.stdout)
     assert any(s["surface"] == "claude-code" for s in data)
     # 确保 mode 命名已去 agent-style 化
+    allowed_modes = {"anchor-import", "guarded-block", "manual-paste", "rule-file", "skill-file"}
     for s in data:
-        assert s["mode"] in {"anchor-import", "guarded-block", "manual-paste"}
+        assert s["mode"] in allowed_modes
 
 
 def test_cli_handshake():

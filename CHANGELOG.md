@@ -1,5 +1,25 @@
 # CHANGELOG
 
+## v0.2.1 — 2026-04-21
+
+CodeBuddy / WorkBuddy 原生适配 + 有效性评测。
+
+### 新接入面
+- **CodeBuddy（`rule-file`）**：写入 `.codebuddy/rules/star-word/RULE.mdc`，使用 CodeBuddy 原生规则格式（`alwaysApply` / `enabled` / `updatedAt` frontmatter）。`--global` 写到 `~/.codebuddy/rules/star-word/RULE.mdc`。
+- **WorkBuddy（`skill-file`）**：写入 `~/.workbuddy/skills/star-word/SKILL.md`，遵循 Skills 格式（`name` / `description` / `version` / `tags`）+ 角色/执行流程/避坑清单正文。WorkBuddy 只有用户级 skills，忽略 `--global` 差异。
+
+### 评测
+- `bench/run.py`：对 codex CLI 驱动的 GPT-5 做 A/B 评测（4 条中文写作题 × baseline / treatment）。
+- `bench/v0.2-effectiveness.md`：总违规 5 → 1（-80%），其中 vision（愿景宣传类）3 → 1；给出定性对比（baseline 堆砌"下一代智能生产力的基础设施 / 核心链路 / 平台级价值"，treatment 给具体动作 + 商业痛点）。
+- 透明说明：机械违规数是 directional signal，语感质感改进需要 v0.3 的 LLM-as-judge 才能量化。
+
+### 检测器调整
+- **`式-04` 阈值从 3 提高到 4**：紧实技术中文常连用 3 个四字名词（如"命令语义、复制链路、故障处理"），原阈值误伤。新阈值要求连续 4 个及以上才触发，保证对"高效可靠、稳定强大、灵活智能、便捷易用"这类纯装饰堆砌仍能抓到。
+- 新增测试：`test_式_04_allows_three_tech_nouns`。
+
+### 测试总数
+52 个（v0.2.0 是 44 个）。新增：2 × CodeBuddy + 4 × WorkBuddy + 1 × 式-04 放宽 + 1 × surfaces 全列表断言。
+
 ## v0.2.0 — 2026-04-21
 
 架构重构。rules.yaml 成为唯一来源。

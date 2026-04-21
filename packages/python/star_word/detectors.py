@@ -294,10 +294,17 @@ def 式_01(ctx: ScanContext) -> RuleResult:
 
 
 def 式_04(ctx: ScanContext) -> RuleResult:
-    """连续 3+ 形容词性四字结构（顿号/逗号分隔）."""
+    """连续 4+ 四字结构（顿号/逗号分隔）.
+
+    阈值定 4 不定 3：紧实技术中文常常连用 3 个四字名词（「命令语义、复制链路、故障处理」），
+    不是 AI 堆砌。只有 4 个及以上连用才基本排除合法技术表述，接近装饰性堆砌。
+    """
     out: List[Violation] = []
     pattern = re.compile(
-        r"([\u4e00-\u9fff]{4})[，、,]\s*([\u4e00-\u9fff]{4})[，、,]\s*([\u4e00-\u9fff]{4})"
+        r"([\u4e00-\u9fff]{4})[，、,]\s*"
+        r"([\u4e00-\u9fff]{4})[，、,]\s*"
+        r"([\u4e00-\u9fff]{4})[，、,]\s*"
+        r"([\u4e00-\u9fff]{4})"
     )
     for i, masked in enumerate(ctx.masked_lines):
         if ctx.fence_map[i]:
@@ -305,7 +312,7 @@ def 式_04(ctx: ScanContext) -> RuleResult:
         for m in pattern.finditer(masked):
             out.append(Violation(
                 rule_id="式-04",
-                message=f"四字词堆砌：{m.group(1)}、{m.group(2)}、{m.group(3)}",
+                message=f"四字词堆砌：{m.group(1)}、{m.group(2)}、{m.group(3)}、{m.group(4)}",
                 line=i + 1,
                 col=m.start() + 1,
                 excerpt=_excerpt(ctx.lines[i], m.start()),

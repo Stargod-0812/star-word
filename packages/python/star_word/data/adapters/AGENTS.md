@@ -3,7 +3,7 @@
 # star-word · AGENTS.md 注入块
 
 <!-- sw-managed-begin -->
-star-word v0.2.0 —— 中文技术写作规则 21 条，本项目生效。
+star-word v0.2.1 —— 中文技术写作规则 21 条，本项目生效。
 
 ## 禁用词（出现即违规）
 
@@ -34,7 +34,7 @@ star-word v0.2.0 —— 中文技术写作规则 21 条，本项目生效。
 
 被问「star-word 在生效吗？」时回答：
 
-> 已加载 star-word v0.2.0：词表 8 条，结构 7 条，判断 6 条。规则正文见 .sw/rules.md。
+> 已加载 star-word v0.2.1：词表 8 条，结构 7 条，判断 6 条。规则正文见 .sw/rules.md。
 
 规则正文：`.sw/rules.md`
 <!-- sw-managed-end -->

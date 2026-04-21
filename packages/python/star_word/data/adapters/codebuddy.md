@@ -1,12 +1,14 @@
 <!-- GENERATED from rules.yaml — 不要手改 -->
+<!-- Target: .codebuddy/rules/star-word/RULE.mdc  (rule-file 模式) -->
 
-# star-word v0.2.1 · Codex API 系统提示
+---
+description: star-word 中文技术写作规则（21 条，治 LLM 中文 AI 味）
+alwaysApply: true
+enabled: true
+updatedAt: 2026-04-21T00:00:00.000Z
+version: 0.2.1
+---
 
-把下方 SYSTEM PROMPT 小节的内容粘贴进你的 Codex API 调用的 `system_prompt` 字段。
-
-## SYSTEM PROMPT
-
-```
 star-word v0.2.1 —— 中文技术写作规则 21 条，本项目生效。
 
 ## 禁用词（出现即违规）
@@ -41,27 +43,3 @@ star-word v0.2.1 —— 中文技术写作规则 21 条，本项目生效。
 > 已加载 star-word v0.2.1：词表 8 条，结构 7 条，判断 6 条。规则正文见 .sw/rules.md。
 
 规则正文：`.sw/rules.md`
-
-例外原则：若严格执行规则反而让句子变别扭，破例 —— 但在注释或 commit 说明中指出理由。
-```
-
-## 用法（Python 示例）
-
-```python
-from openai import OpenAI
-
-client = OpenAI(api_key='...')
-
-with open(".sw/codex-system-prompt.md") as f:
-    system_prompt = f.read()
-
-resp = client.chat.completions.create(
-    model='gpt-5',
-    messages=[
-        {'role': 'system', 'content': system_prompt},
-        {'role': 'user', 'content': '帮我写一份分布式锁的 RFC。'},
-    ],
-)
-```
-
-SYSTEM PROMPT 约 949 字符。若成本敏感，只粘「禁用词」加「语感要求」前三条即可。

@@ -53,8 +53,8 @@ star-word 做两件事：
 ## 快速开始
 
 ```bash
-# 1. 从源码安装（v0.2.0 暂未发布到 PyPI，v0.3 计划发）
-pip install "git+https://github.com/Stargod-0812/star-word.git@v0.2.0#subdirectory=packages/python"
+# 1. 从源码安装（暂未发布到 PyPI，v0.3 计划发）
+pip install "git+https://github.com/Stargod-0812/star-word.git@v0.2.1#subdirectory=packages/python"
 
 # 2. 全局接入 Claude Code（所有项目生效）
 star-word enable claude-code --global
@@ -120,8 +120,16 @@ star-word review examples/before.md
 | Claude Code | `anchor-import` | `CLAUDE.md`（项目级或 `~/.claude/CLAUDE.md` 全局级）|
 | AGENTS.md 兼容（Codex CLI / Zed / Jules / Warp / Gemini CLI / VS Code） | `guarded-block` | `AGENTS.md` |
 | Codex API | `manual-paste` | `.sw/codex-system-prompt.md`（手动粘贴到 `system_prompt`）|
+| CodeBuddy（腾讯云代码助手） | `rule-file` | `.codebuddy/rules/star-word/RULE.mdc`（项目级）或 `~/.codebuddy/rules/star-word/RULE.mdc`（`--global`） |
+| WorkBuddy（腾讯 AI 桌面智能体） | `skill-file` | `~/.workbuddy/skills/star-word/SKILL.md`（始终用户级） |
 
 Cursor、GitHub Copilot、Aider 等待 v0.3 适配。
+
+### 针对不同 surface 的特化
+
+- **Claude Code / AGENTS.md**：`@path` 嵌套导入 + marker 块，让规则在每次会话启动即进入上下文。
+- **CodeBuddy**：用其原生 `.codebuddy/rules/` 机制 + `alwaysApply: true` + `enabled: true` frontmatter，与它的规则加载协议对齐。新建会话才生效（CodeBuddy 特性）。
+- **WorkBuddy**：作为 `SKILL.md` 注入，带角色定义 / 执行流程 / 避坑清单结构，匹配 WorkBuddy 的 Skill 语义。重启 WorkBuddy 才被识别。
 
 ---
 
@@ -156,7 +164,7 @@ star-word review path/to/doc.md --json   # 机器可读 JSON
 不想装 pip 包也行：
 
 ```bash
-VER=v0.2.0
+VER=v0.2.1
 mkdir -p .sw
 curl -fsSLo .sw/rules.md       "https://raw.githubusercontent.com/Stargod-0812/star-word/${VER}/RULES.md"
 curl -fsSLo .sw/claude.md      "https://raw.githubusercontent.com/Stargod-0812/star-word/${VER}/adapters/claude-code.md"
@@ -204,6 +212,26 @@ pip uninstall star-word
 ```
 
 `disable` 会清 `.sw/` 目录和 `CLAUDE.md` / `AGENTS.md` 里的 marker 块（marker 之外的用户内容不动）。
+
+---
+
+## 有效性评测
+
+`bench/run.py` 对 codex CLI 驱动的 GPT-5 做 A/B：baseline（无 star-word）vs treatment（注入 star-word Codex 系统提示）。v0.2.1 结果：
+
+| 任务 | baseline 违规 | treatment 违规 |
+| --- | ---: | ---: |
+| rfc（Redis 迁移方案） | 1 | 0 |
+| debug（Full GC 排查） | 1 | 0 |
+| postmortem（事故复盘） | 0 | 0 |
+| vision（AI 平台愿景） | 3 | 1 |
+| **合计** | **5** | **1**（**-80%**） |
+
+`vision` 任务定性对比尤其值得看：baseline 写出「下一代智能生产力的基础设施」，treatment 改写成立场锋利、痛点具体的版本。完整对比见 [`bench/v0.2-effectiveness.md`](bench/v0.2-effectiveness.md)。
+
+复现：`python3 bench/run.py`（需安装 codex CLI + 有 OpenAI 账号）。
+
+诚实说明：违规数只是 directional signal —— 真正的写作质感改进（立场、密度、具体性）当前的机械规则捕捉不到，需要 v0.3 加上 LLM-as-judge 才能量化。
 
 ---
 

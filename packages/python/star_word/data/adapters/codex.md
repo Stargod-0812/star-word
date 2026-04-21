@@ -1,13 +1,13 @@
 <!-- GENERATED from rules.yaml — 不要手改 -->
 
-# star-word v0.2.0 · Codex API 系统提示
+# star-word v0.2.1 · Codex API 系统提示
 
 把下方 SYSTEM PROMPT 小节的内容粘贴进你的 Codex API 调用的 `system_prompt` 字段。
 
 ## SYSTEM PROMPT
 
 ```
-star-word v0.2.0 —— 中文技术写作规则 21 条，本项目生效。
+star-word v0.2.1 —— 中文技术写作规则 21 条，本项目生效。
 
 ## 禁用词（出现即违规）
 
@@ -38,7 +38,7 @@ star-word v0.2.0 —— 中文技术写作规则 21 条，本项目生效。
 
 被问「star-word 在生效吗？」时回答：
 
-> 已加载 star-word v0.2.0：词表 8 条，结构 7 条，判断 6 条。规则正文见 .sw/rules.md。
+> 已加载 star-word v0.2.1：词表 8 条，结构 7 条，判断 6 条。规则正文见 .sw/rules.md。
 
 规则正文：`.sw/rules.md`
 

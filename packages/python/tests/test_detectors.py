@@ -137,10 +137,19 @@ def test_式_01_clean_pass():
 
 
 def test_式_04_flags_quad_stacking():
+    """连续 4 个四字结构才触发."""
     text = "系统高效可靠、稳定强大、灵活智能、便捷易用。"
     ctx = detectors._build_ctx(text)
     r = detectors.式_04(ctx)
     assert r.status == "violations"
+
+
+def test_式_04_allows_three_tech_nouns():
+    """连续 3 个紧实技术名词（非装饰性）不应触发."""
+    text = "但旧版本在命令语义、复制链路、故障处理上与 7.x 存在差距。"
+    ctx = detectors._build_ctx(text)
+    r = detectors.式_04(ctx)
+    assert r.status == "ok"
 
 
 def test_式_04_allows_two_quadrupes():

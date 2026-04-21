@@ -405,6 +405,106 @@ def gen_agents_md_body(data: dict) -> str:
     return "\n".join(out)
 
 
+def gen_codebuddy_adapter(data: dict) -> str:
+    """生成 CodeBuddy 项目规则（rule-file 模式）.
+
+    目标路径（安装时）：.codebuddy/rules/star-word/RULE.mdc
+    格式：MDC frontmatter + 规则正文（直接复用 AGENTS.md body）.
+    """
+    meta = data["meta"]
+    body = gen_agents_md_body(data)
+    out: list[str] = []
+    out.append("<!-- GENERATED from rules.yaml — 不要手改 -->")
+    out.append("<!-- Target: .codebuddy/rules/star-word/RULE.mdc  (rule-file 模式) -->")
+    out.append("")
+    out.append("---")
+    out.append("description: star-word 中文技术写作规则（21 条，治 LLM 中文 AI 味）")
+    out.append("alwaysApply: true")
+    out.append("enabled: true")
+    out.append(f"updatedAt: 2026-04-21T00:00:00.000Z")
+    out.append(f"version: {meta['version']}")
+    out.append("---")
+    out.append("")
+    out.append(body)
+    out.append("")
+    return "\n".join(out)
+
+
+def gen_workbuddy_adapter(data: dict) -> str:
+    """生成 WorkBuddy Skill 文件（skill-file 模式）.
+
+    目标路径（安装时）：~/.workbuddy/skills/star-word/SKILL.md
+    格式：YAML frontmatter + 角色 / 执行流程 / 参考资源.
+    """
+    meta = data["meta"]
+    rules = data["rules"]
+    word_count = sum(1 for r in rules if r["group"] == "词")
+    shape_count = sum(1 for r in rules if r["group"] == "式")
+    sense_count = sum(1 for r in rules if r["group"] == "气")
+
+    # 收集所有禁用词供 skill body 引用
+    all_banned: list[str] = []
+    for r in rules:
+        if "banned_words" in r:
+            all_banned.extend(r["banned_words"])
+        if "banned_patterns" in r:
+            all_banned.extend(p["word"] for p in r["banned_patterns"])
+
+    out: list[str] = []
+    out.append("<!-- GENERATED from rules.yaml — 不要手改 -->")
+    out.append("<!-- Target: ~/.workbuddy/skills/star-word/SKILL.md  (skill-file 模式) -->")
+    out.append("")
+    out.append("---")
+    out.append("name: star-word")
+    out.append("description: 中文技术写作规则检查与约束（禁用 AI 套话、结构 tell、讨好式表达）")
+    out.append(f"version: {meta['version']}")
+    out.append("tags: [writing, chinese, linter, anti-ai-slop, technical-docs]")
+    out.append("---")
+    out.append("")
+    out.append("## 角色定义")
+    out.append("")
+    out.append("你是一位中文技术写作审稿人。你熟悉 LLM 中文输出的 tell pattern —— 看到「赋能」、「值得注意的是」、「稳稳接住」会立刻标红；")
+    out.append("看到段尾「综上所述」会立刻标红；看到铺垫式开场会立刻标红。")
+    out.append("你写中文技术文字时，像一位判断力极强的工程师在聊天：直接、有推进感、每句不可替代。")
+    out.append("")
+    out.append("## 执行流程")
+    out.append("")
+    out.append("起草中文技术文字时，按以下顺序自查：")
+    out.append("")
+    out.append(f"1. **扫描禁用词**（共 {len(all_banned)} 个）：任一出现即改写。")
+    out.append("2. **扫描禁用结构**：进行+动词 / 单句 3 个以上「的」 / 段尾「综上所述」 / 强套「首先/其次/最后」 / 主语前定语 > 20 字 / 连续 3 个四字词 / 中文里混半角标点 / 术语中英文切换 / 少于 3 项列表。")
+    out.append("3. **语感自检**（6 条判断）：")
+    out.append("   - 第一句直接入题（删首句第二句仍独立成文？首句多余）")
+    out.append("   - 每句推进认知 / 做取舍 / 给结构 —— 否则砍")
+    out.append("   - 有判断、有立场（不做「各有优劣」式综述）")
+    out.append("   - 看本质、不停在现象（先 reframe 问题再答）")
+    out.append("   - 三句能说完的别用五句")
+    out.append("   - 用人话（别滥用「乃/之/其/故」）")
+    out.append("4. **输出前再审一遍**：把全文当作他人写的 LLM 草稿去挑刺。")
+    out.append("")
+    out.append("## 常见失误（避坑清单）")
+    out.append("")
+    out.append("- 把「进行分析」写成动词「进行分析」：直接写「分析」。")
+    out.append("- 每段收尾加「综上所述 / 总的来说」：段落写完就停。")
+    out.append("- 用「好问题，让我来为您解释」开头：直接给答案。")
+    out.append("- 铺垫式第一句「在当今XX领域」：第一句说事本身。")
+    out.append("- 用「稳稳接住 / 默默守护 / 保驾护航」形容技术：写具体触发条件和处理逻辑。")
+    out.append("")
+    out.append("## 参考资源")
+    out.append("")
+    out.append(f"- 规则全文 21 条：词-01..08 / 式-01..07 / 气-01..06")
+    out.append("- 项目仓库：https://github.com/Stargod-0812/star-word")
+    out.append(f"- 当前版本：v{meta['version']}")
+    out.append("")
+    out.append("## 自检口令")
+    out.append("")
+    out.append("被问「star-word 在生效吗？」时回答：")
+    out.append("")
+    out.append(f"> 已加载 star-word v{meta['version']}：词表 {word_count} 条，结构 {shape_count} 条，判断 {sense_count} 条。")
+    out.append("")
+    return "\n".join(out)
+
+
 def gen_codex_adapter(data: dict) -> str:
     """生成 Codex API system prompt（manual-paste 模式）."""
     meta = data["meta"]
@@ -486,6 +586,8 @@ def main(argv: list[str] | None = None) -> int:
         repo_root / "adapters" / "claude-code.md": gen_claude_adapter(data),
         repo_root / "adapters" / "AGENTS.md": gen_agents_md_full(data),
         repo_root / "adapters" / "codex.md": gen_codex_adapter(data),
+        repo_root / "adapters" / "codebuddy.md": gen_codebuddy_adapter(data),
+        repo_root / "adapters" / "workbuddy.md": gen_workbuddy_adapter(data),
     }
 
     # 镜像到包数据目录
@@ -496,6 +598,8 @@ def main(argv: list[str] | None = None) -> int:
         data_dir / "adapters" / "claude-code.md": gen_claude_adapter(data),
         data_dir / "adapters" / "AGENTS.md": gen_agents_md_full(data),
         data_dir / "adapters" / "codex.md": gen_codex_adapter(data),
+        data_dir / "adapters" / "codebuddy.md": gen_codebuddy_adapter(data),
+        data_dir / "adapters" / "workbuddy.md": gen_workbuddy_adapter(data),
     }
     generated.update(pkg_mirror)
 

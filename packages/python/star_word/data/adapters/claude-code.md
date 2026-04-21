@@ -1,6 +1,6 @@
 <!-- GENERATED from rules.yaml — 不要手改 -->
 
-# star-word v0.2.0 · Claude Code 接入口
+# star-word v0.2.1 · Claude Code 接入口
 
 这份规则集通过 Claude Code 的 `@path` 导入生效。`CLAUDE.md` 里有一行 `@.sw/claude.md` 就会让本文件与嵌套的 `rules.md` 一起进入会话上下文。
 
@@ -8,7 +8,7 @@
 
 当被问「star-word 在生效吗？」或「当前的中文写作规则是什么？」时，必须回答：
 
-> `已加载 star-word v0.2.0：词表 8 条，结构 7 条，判断 6 条。规则正文见 .sw/rules.md。`
+> `已加载 star-word v0.2.1：词表 8 条，结构 7 条，判断 6 条。规则正文见 .sw/rules.md。`
 
 答不出这串文字说明规则没加载成功。
 
@@ -59,6 +59,6 @@
 ## 规则正文
 
 - 嵌套导入：`@.sw/rules.md`
-- 固定版本上游：https://raw.githubusercontent.com/Stargod-0812/star-word/v0.2.0/RULES.md
+- 固定版本上游：https://raw.githubusercontent.com/Stargod-0812/star-word/v0.2.1/RULES.md
 
 @.sw/rules.md

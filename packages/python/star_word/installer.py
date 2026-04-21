@@ -203,10 +203,90 @@ def disable_codex(global_scope: bool = False) -> InstallResult:
     )
 
 
+# rule-file: CodeBuddy 原生规则文件
+def enable_codebuddy(global_scope: bool = False) -> InstallResult:
+    """接入 CodeBuddy: 写 .codebuddy/rules/star-word/RULE.mdc.
+
+    --global 时写到 ~/.codebuddy/rules/star-word/RULE.mdc（CodeBuddy 用户级规则路径）。
+    """
+    if global_scope:
+        rule_dir = Path.home() / ".codebuddy" / "rules" / "star-word"
+    else:
+        rule_dir = Path.cwd() / ".codebuddy" / "rules" / "star-word"
+    rule_dir.mkdir(parents=True, exist_ok=True)
+    target = rule_dir / "RULE.mdc"
+    shutil.copy2(_data_path("adapters", "codebuddy.md"), target)
+    return InstallResult(
+        surface="codebuddy",
+        mode="rule-file",
+        wired=True,
+        target=str(target),
+        notes=(
+            f"CodeBuddy 规则文件已写入 {target}。\n"
+            "注意：新建对话会话后规则才生效（CodeBuddy 仅在会话开始时加载规则）。"
+        ),
+    )
+
+
+def disable_codebuddy(global_scope: bool = False) -> InstallResult:
+    if global_scope:
+        rule_dir = Path.home() / ".codebuddy" / "rules" / "star-word"
+    else:
+        rule_dir = Path.cwd() / ".codebuddy" / "rules" / "star-word"
+    existed = rule_dir.exists()
+    if existed:
+        shutil.rmtree(rule_dir)
+    return InstallResult(
+        surface="codebuddy",
+        mode="rule-file",
+        wired=False,
+        target=str(rule_dir),
+        notes=("已删除 star-word 规则目录。" if existed else "未发现 star-word 规则目录。"),
+    )
+
+
+# skill-file: WorkBuddy Skills 文件
+def enable_workbuddy(global_scope: bool = False) -> InstallResult:
+    """接入 WorkBuddy: 写 ~/.workbuddy/skills/star-word/SKILL.md.
+
+    WorkBuddy 的 skills 只支持用户级，忽略 --global 参数（无项目级概念）。
+    """
+    skill_dir = Path.home() / ".workbuddy" / "skills" / "star-word"
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    target = skill_dir / "SKILL.md"
+    shutil.copy2(_data_path("adapters", "workbuddy.md"), target)
+    return InstallResult(
+        surface="workbuddy",
+        mode="skill-file",
+        wired=True,
+        target=str(target),
+        notes=(
+            f"WorkBuddy skill 已写入 {target}。\n"
+            "注意：需重启 WorkBuddy 让 skill 被识别（手动放入机制）。"
+        ),
+    )
+
+
+def disable_workbuddy(global_scope: bool = False) -> InstallResult:
+    skill_dir = Path.home() / ".workbuddy" / "skills" / "star-word"
+    existed = skill_dir.exists()
+    if existed:
+        shutil.rmtree(skill_dir)
+    return InstallResult(
+        surface="workbuddy",
+        mode="skill-file",
+        wired=False,
+        target=str(skill_dir),
+        notes=("已删除 star-word skill 目录。" if existed else "未发现 star-word skill 目录。"),
+    )
+
+
 SUPPORTED_SURFACES = {
     "claude-code": (enable_claude_code, disable_claude_code),
     "agents-md": (enable_agents_md, disable_agents_md),
     "codex": (enable_codex, disable_codex),
+    "codebuddy": (enable_codebuddy, disable_codebuddy),
+    "workbuddy": (enable_workbuddy, disable_workbuddy),
 }
 
 
@@ -231,4 +311,6 @@ def list_surfaces() -> list[dict]:
         {"surface": "claude-code", "mode": "anchor-import", "target": "CLAUDE.md"},
         {"surface": "agents-md", "mode": "guarded-block", "target": "AGENTS.md"},
         {"surface": "codex", "mode": "manual-paste", "target": f"{STORE_DIR_NAME}/codex-system-prompt.md"},
+        {"surface": "codebuddy", "mode": "rule-file", "target": ".codebuddy/rules/star-word/RULE.mdc"},
+        {"surface": "workbuddy", "mode": "skill-file", "target": "~/.workbuddy/skills/star-word/SKILL.md"},
     ]

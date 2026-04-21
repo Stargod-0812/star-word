@@ -67,11 +67,12 @@ def test_disable_preserves_user_content(tmp_project):
 
 
 def test_enable_agents_md(tmp_project):
+    from star_word import __version__
     r = installer.enable("agents-md")
     assert r.wired is True
     assert (tmp_project / "AGENTS.md").exists()
     content = (tmp_project / "AGENTS.md").read_text(encoding="utf-8")
-    assert "star-word v0.2.0" in content
+    assert f"star-word v{__version__}" in content
     assert "禁用词" in content
 
 
@@ -80,6 +81,90 @@ def test_enable_codex_writes_prompt(tmp_project):
     assert r.wired is False  # manual-paste 模式
     assert "codex-system-prompt.md" in r.target
     assert (tmp_project / ".sw" / "codex-system-prompt.md").exists()
+
+
+# -------- CodeBuddy surface --------
+
+
+def test_enable_codebuddy_local(tmp_project):
+    r = installer.enable("codebuddy")
+    assert r.wired is True
+    assert r.mode == "rule-file"
+    rule = tmp_project / ".codebuddy" / "rules" / "star-word" / "RULE.mdc"
+    assert rule.exists()
+    content = rule.read_text(encoding="utf-8")
+    assert "alwaysApply: true" in content
+    assert "enabled: true" in content
+    assert "description:" in content
+    # Frontmatter 正确 YAML
+    assert content.startswith("<!-- GENERATED")
+
+
+def test_enable_codebuddy_global(tmp_project, tmp_path, monkeypatch):
+    fake_home = tmp_path / "fake-home"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    r = installer.enable("codebuddy", global_scope=True)
+    assert r.wired is True
+    rule = fake_home / ".codebuddy" / "rules" / "star-word" / "RULE.mdc"
+    assert rule.exists()
+
+
+def test_disable_codebuddy(tmp_project):
+    installer.enable("codebuddy")
+    rule_dir = tmp_project / ".codebuddy" / "rules" / "star-word"
+    assert rule_dir.exists()
+    installer.disable("codebuddy")
+    assert not rule_dir.exists()
+
+
+# -------- WorkBuddy surface --------
+
+
+def test_enable_workbuddy_always_global(tmp_path, monkeypatch):
+    fake_home = tmp_path / "fake-home"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    r = installer.enable("workbuddy")
+    assert r.wired is True
+    assert r.mode == "skill-file"
+    skill = fake_home / ".workbuddy" / "skills" / "star-word" / "SKILL.md"
+    assert skill.exists()
+    content = skill.read_text(encoding="utf-8")
+    assert "name: star-word" in content
+    assert "## 角色定义" in content
+    assert "## 执行流程" in content
+
+
+def test_workbuddy_ignores_local_flag(tmp_project, tmp_path, monkeypatch):
+    """WorkBuddy 没有项目级概念 —— global_scope=False 时也应该走 ~/.workbuddy/."""
+    fake_home = tmp_path / "fake-home"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    installer.enable("workbuddy", global_scope=False)
+    # 项目目录下不应该有 .workbuddy/
+    assert not (tmp_project / ".workbuddy").exists()
+    # 用户 home 下应该有
+    assert (fake_home / ".workbuddy" / "skills" / "star-word" / "SKILL.md").exists()
+
+
+def test_disable_workbuddy(tmp_path, monkeypatch):
+    fake_home = tmp_path / "fake-home"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    installer.enable("workbuddy")
+    skill_dir = fake_home / ".workbuddy" / "skills" / "star-word"
+    assert skill_dir.exists()
+    installer.disable("workbuddy")
+    assert not skill_dir.exists()
+
+
+def test_all_surfaces_listed():
+    surfaces = installer.list_surfaces()
+    names = {s["surface"] for s in surfaces}
+    assert {"claude-code", "agents-md", "codex", "codebuddy", "workbuddy"} <= names
+    modes = {s["mode"] for s in surfaces}
+    assert {"anchor-import", "guarded-block", "manual-paste", "rule-file", "skill-file"} <= modes
 
 
 def test_unknown_surface_raises():
