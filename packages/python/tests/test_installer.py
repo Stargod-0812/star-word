@@ -227,6 +227,31 @@ def test_golden_snapshot_claude_adapter(tmp_project):
     assert _sha256(installed) == _sha256(src), ".sw/claude.md 内容与 adapter 源不一致"
 
 
+def test_golden_snapshot_codebuddy_rule(tmp_project):
+    """锁定 CodeBuddy 规则文件，避免适配器内容漂移。"""
+    installer.enable("codebuddy")
+    installed = tmp_project / ".codebuddy" / "rules" / "star-word" / "RULE.mdc"
+    src = (
+        Path(__file__).resolve().parent.parent
+        / "star_word" / "data" / "adapters" / "codebuddy.md"
+    )
+    assert _sha256(installed) == _sha256(src), "CodeBuddy 安装产物与 adapter 源不一致"
+
+
+def test_golden_snapshot_workbuddy_skill(tmp_path, monkeypatch):
+    """锁定 WorkBuddy skill 文件，避免适配器内容漂移。"""
+    fake_home = tmp_path / "fake-home"
+    fake_home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: fake_home)
+    installer.enable("workbuddy")
+    installed = fake_home / ".workbuddy" / "skills" / "star-word" / "SKILL.md"
+    src = (
+        Path(__file__).resolve().parent.parent
+        / "star_word" / "data" / "adapters" / "workbuddy.md"
+    )
+    assert _sha256(installed) == _sha256(src), "WorkBuddy 安装产物与 adapter 源不一致"
+
+
 def test_marker_syntax_not_agent_style(tmp_project):
     """确保 marker 语法不与 agent-style 的 :begin/:end 约定相同."""
     installer.enable("claude-code")
