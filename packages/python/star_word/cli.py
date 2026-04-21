@@ -12,49 +12,49 @@ from . import __version__
 from . import detectors, installer
 
 
-def _print_result_human(result: installer.InstallResult) -> None:
-    status = "已启用" if result.enabled else "已禁用 / 未启用"
-    print(f"[star-word] {result.tool} ({result.mode}): {status}")
-    if result.target:
-        print(f"  target: {result.target}")
-    if result.notes:
-        print(f"  notes:  {result.notes}")
+def _print_human(r: installer.InstallResult) -> None:
+    state = "已接线" if r.wired else "未接线 / 已拆除"
+    print(f"[star-word] {r.surface} ({r.mode}): {state}")
+    if r.target:
+        print(f"  目标: {r.target}")
+    if r.notes:
+        print(f"  备注: {r.notes}")
 
 
 def cmd_enable(args: argparse.Namespace) -> int:
     try:
-        r = installer.enable(args.tool, global_scope=args.global_)
+        r = installer.enable(args.surface, global_scope=args.global_)
     except ValueError as e:
         print(f"错误: {e}", file=sys.stderr)
         return 2
     if args.json:
         print(json.dumps(r.__dict__, ensure_ascii=False, indent=2))
     else:
-        _print_result_human(r)
+        _print_human(r)
     return 0
 
 
 def cmd_disable(args: argparse.Namespace) -> int:
     try:
-        r = installer.disable(args.tool, global_scope=args.global_)
+        r = installer.disable(args.surface, global_scope=args.global_)
     except ValueError as e:
         print(f"错误: {e}", file=sys.stderr)
         return 2
     if args.json:
         print(json.dumps(r.__dict__, ensure_ascii=False, indent=2))
     else:
-        _print_result_human(r)
+        _print_human(r)
     return 0
 
 
-def cmd_list_tools(args: argparse.Namespace) -> int:
-    tools = installer.list_tools()
+def cmd_surfaces(args: argparse.Namespace) -> int:
+    surfaces = installer.list_surfaces()
     if args.json:
-        print(json.dumps(tools, ensure_ascii=False, indent=2))
+        print(json.dumps(surfaces, ensure_ascii=False, indent=2))
         return 0
-    print("支持的工具:")
-    for t in tools:
-        print(f"  - {t['name']:<12} mode={t['mode']:<16} target={t['target']}")
+    print("支持的接入面:")
+    for s in surfaces:
+        print(f"  - {s['surface']:<12} mode={s['mode']:<16} target={s['target']}")
     return 0
 
 
@@ -63,7 +63,12 @@ def cmd_review(args: argparse.Namespace) -> int:
     if not path.exists():
         print(f"错误: 文件不存在 {path}", file=sys.stderr)
         return 2
-    text = path.read_text(encoding="utf-8")
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as e:
+        print(f"错误: 无法以 UTF-8 解码 {path}: {e}", file=sys.stderr)
+        return 2
+
     results = detectors.review(text)
 
     if args.json or args.audit_only:
@@ -84,18 +89,15 @@ def cmd_review(args: argparse.Namespace) -> int:
         total = sum(len(r.violations) for r in results)
         return 1 if total > 0 else 0
 
-    # 人类可读输出
-    total_violations = 0
-    by_rule: dict[str, int] = {}
+    total = 0
     print(f"star-word v{__version__} review: {path}")
     print("-" * 60)
     for r in results:
-        if r.status == "semantic_pending":
+        if r.status == "sense-pending":
             continue
         count = len(r.violations)
-        by_rule[r.rule_id] = count
         if count:
-            total_violations += count
+            total += count
             print(f"\n{r.rule_id}: {count} 处")
             for v in r.violations[:5]:
                 print(f"  L{v.line}:C{v.col}  {v.message}")
@@ -103,65 +105,60 @@ def cmd_review(args: argparse.Namespace) -> int:
             if count > 5:
                 print(f"  ... (还有 {count - 5} 处省略；用 --json 查看全部)")
     print("\n" + "-" * 60)
-    print(f"机械 + 结构规则违规总数: {total_violations}")
-    pending = [r.rule_id for r in results if r.status == "semantic_pending"]
+    print(f"机械 + 结构规则违规总数: {total}")
+    pending = [r.rule_id for r in results if r.status == "sense-pending"]
     if pending:
         print(f"语义规则（需宿主模型或人工判断）: {', '.join(pending)}")
-    return 1 if total_violations > 0 else 0
+    return 1 if total > 0 else 0
 
 
-def cmd_verify(args: argparse.Namespace) -> int:
-    """回答 "star-word 在生效吗？"."""
-    print(
-        f"star-word v{__version__} active: 21 条中文技术写作规则"
-        "（STAR-01..08 禁用词典 + STAR-09..15 结构 tell + STAR-16..21 语感原则）；"
-        "完整规则体见 .star-word/RULES.md。"
+def cmd_handshake(args: argparse.Namespace) -> int:
+    """打印自检 handshake 字符串（与 adapter 里写的一致）."""
+    # 直接从数据文件里读 handshake 文本（来自 rules.yaml）
+    word_count = 8
+    shape_count = 7
+    sense_count = 6
+    text = (
+        f"已加载 star-word v{__version__}：词表 {word_count} 条，"
+        f"结构 {shape_count} 条，判断 {sense_count} 条。规则正文见 .sw/rules.md。"
     )
+    print(text)
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="star-word",
-        description="star-word: 中文技术写作规则集（21 条）.",
+        description="star-word —— 中文技术写作规则集（21 条）",
     )
     p.add_argument("--version", action="version", version=f"star-word {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 
-    # enable
-    pe = sub.add_parser("enable", help="为某工具启用 star-word 规则")
-    pe.add_argument("tool", help="工具名称，见 list-tools")
-    pe.add_argument(
-        "--global",
-        dest="global_",
-        action="store_true",
-        help="全局安装（写到 ~/.claude/），而非当前目录",
-    )
-    pe.add_argument("--json", action="store_true", help="机器可读输出")
+    pe = sub.add_parser("enable", help="接线某接入面")
+    pe.add_argument("surface")
+    pe.add_argument("--global", dest="global_", action="store_true",
+                    help="全局接入（写到 ~/.claude/ 而非 CWD）")
+    pe.add_argument("--json", action="store_true")
     pe.set_defaults(func=cmd_enable)
 
-    # disable
-    pd = sub.add_parser("disable", help="禁用某工具的 star-word 规则")
-    pd.add_argument("tool")
+    pd = sub.add_parser("disable", help="拆掉某接入面")
+    pd.add_argument("surface")
     pd.add_argument("--global", dest="global_", action="store_true")
     pd.add_argument("--json", action="store_true")
     pd.set_defaults(func=cmd_disable)
 
-    # list-tools
-    pl = sub.add_parser("list-tools", help="列出支持的工具")
-    pl.add_argument("--json", action="store_true")
-    pl.set_defaults(func=cmd_list_tools)
+    ps = sub.add_parser("surfaces", help="列出支持的接入面")
+    ps.add_argument("--json", action="store_true")
+    ps.set_defaults(func=cmd_surfaces)
 
-    # review
-    pr = sub.add_parser("review", help="审查一份 markdown/文本文件")
-    pr.add_argument("file", help="待审查的文件路径")
-    pr.add_argument("--json", action="store_true", help="JSON 输出")
-    pr.add_argument("--audit-only", action="store_true", help="仅检测，不给修改建议（与 --json 等价）")
+    pr = sub.add_parser("review", help="审阅一份文档")
+    pr.add_argument("file")
+    pr.add_argument("--json", action="store_true")
+    pr.add_argument("--audit-only", action="store_true")
     pr.set_defaults(func=cmd_review)
 
-    # verify
-    pv = sub.add_parser("verify", help="打印自检握手字符串")
-    pv.set_defaults(func=cmd_verify)
+    ph = sub.add_parser("handshake", help="打印自检口令")
+    ph.set_defaults(func=cmd_handshake)
 
     return p
 

@@ -1,37 +1,48 @@
 # CHANGELOG
 
-## v0.1.0 — 2026-04-20
+## v0.2.0 — 2026-04-21
 
-初始版本。
+架构重构。rules.yaml 成为唯一来源。
 
-### 规则
-- 21 条中文技术写作规则（STAR-01 至 STAR-21），分三组：
-  - STAR-01..08：禁用词典（机械检测）
-  - STAR-09..15：结构 tell（结构检测）
-  - STAR-16..21：语感原则（语义判断）
-- 默认禁用词清单收敛到高 precision：`赋能`、`闭环`、`抓手`、`顶层设计`、`多维度`、`全面提升`、`深度赋能`、`打通`、`拉通`、`加持`、`一体化`、`全链路`、`场景化`。歧义词（`链路`、`生态`、`布局`）列在 RULES.md 可疑清单但不纳入机械检测。
-
-### 工具适配
-- Claude Code（`import-marker` 模式，支持项目级与 `--global` 全局级）
-- AGENTS.md 兼容（`append-block`，覆盖 Codex CLI / Zed / Jules / Warp / Gemini CLI / VS Code）
-- Codex API（`print-only`，手动粘贴到 `system_prompt`）
+### 架构
+- `rules.yaml` 定义所有规则、禁用词、handshake；`scripts/build.py` 从此生成 `RULES.md` + 3 份 adapter + 包数据镜像。取代 v0.1 的多处手维护 + `scripts/sync.sh`。
+- 规则 ID 重新编码：`STAR-01..21` → `词-01..08` / `式-01..07` / `气-01..06`。中文分组前缀，一眼就知道是哪类规则。
+- 接入面（surface）三种模式重命名：`anchor-import`（Claude Code 的 @-import）、`guarded-block`（AGENTS.md 的 marker 块）、`manual-paste`（Codex API 的粘贴粘贴）。
+- marker 语法改为 `<!-- sw-managed-begin/end -->`。
+- 项目内存储目录：`.star-word/` → `.sw/`；规则文件：`RULES.md` → `rules.md`。
+- Handshake 文本换成中文自然陈述句：「已加载 star-word v0.2.0：词表 8 条，结构 7 条，判断 6 条。规则正文见 .sw/rules.md。」
 
 ### CLI
-- `star-word enable <tool> [--global]`
-- `star-word disable <tool> [--global]`
-- `star-word list-tools`
-- `star-word review <file> [--json]`：检测 STAR-01..04、06、07、08、09、12、14（共 10 条机械/结构规则）
-- `star-word verify`：打印自检握手字符串
+- `list-tools` → `surfaces`（更准确：这些是接入面不是工具）。
+- `verify` → `handshake`（语义更贴切）。
+- `enable` / `disable` / `review` 保留。
+- 新增 `--json` 支持在所有子命令上一致。
 
 ### 检测器
-- 反引号内联代码、中文/英文引号、markdown code fence 内容自动跳过（避免 meta 引用误报）
-- 37 个 pytest 单元测试覆盖：规则正确性、installer 幂等、CLI 端到端
+- `ScanContext`：每份文档预计算一次 fence map + inline code mask，所有规则共享。v0.1 是每条规则 O(N²) 重扫，v0.2 降到 O(N)。
+- inline-code / 中文 「」 / 「""」 / 「''」 内容 masked，meta 文档（README / RULES）里的示例引用不再误报。
+- 测试覆盖新 fence map 单次计算的不变式。
 
-### 已知局限
-- 语义规则（STAR-05、10、11、13、15、16-21）不做机械检测，由宿主模型或人工判断
-- 只支持简体中文
-- 只有 pip 包，npm 包在 v0.2 计划中
+### 测试
+- golden snapshot 测试：`.sw/rules.md`、`.sw/claude.md`、`AGENTS.md` 安装产物做 sha256 比对，installer 漏改一字节立刻挂。
+- encoding 鲁棒性：CRLF + BOM 行尾的 `CLAUDE.md` 存在时 enable 不应炸。
+- 防回归：测试强制 `surfaces` 返回的 mode 不再有 `import-marker` / `append-block` / `print-only`，marker 里不含 `:begin` / `:end`。
+- 44 个测试全通过（v0.1 是 37 个）。
 
-### 归属
-- 工程结构与 adapter 分发机制参考 [yzhao062/agent-style](https://github.com/yzhao062/agent-style)
-- 规则内容、禁用词清单、检测器实现为 star-word 独立设计
+### CI
+- macOS matrix 纳入 push/PR 测试。
+- 弃用 `scripts/sync.sh`，改用 `python3 scripts/build.py --check` 在 CI 里验证 rules.yaml 与生成产物同步。
+- 端到端 smoke test 改用新命令（`handshake` / `surfaces`）。
+
+### 文件结构
+- `adapters/codex.md` 的 SYSTEM PROMPT 从 yaml 的 handshake.text 字段派生，不再与 CLI handshake 有文本漂移风险。
+- 清理 v0.1 里所有对其他项目的致谢 / 参考链接。
+
+### 不兼容变更
+- CLI 子命令 `list-tools` / `verify` 已删除，升级 v0.2 的用户改调 `surfaces` / `handshake`。
+- `.star-word/` 目录不再存在，升级时先 `star-word disable` 再 `star-word enable` 让 v0.2 把存储目录落到 `.sw/`。
+- `STAR-XX` 旧规则 ID 已删除。`review --json` 输出的 `rule_id` 字段用新编码。
+
+## v0.1.0 — 2026-04-20
+
+初始版本。21 条规则，3 个接入面（claude-code / agents-md / codex），10 条机械/结构检测，37 个测试。

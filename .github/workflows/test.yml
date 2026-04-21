@@ -8,11 +8,13 @@ on:
 
 jobs:
   pytest:
-    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, macos-latest]
         python-version: ["3.9", "3.10", "3.11", "3.12"]
+
+    runs-on: ${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
@@ -33,15 +35,10 @@ jobs:
           cd packages/python
           python -m pytest tests/ -v
 
-      - name: Verify data sync
+      - name: Verify rules.yaml → artifacts drift-free
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.12'
         run: |
-          bash scripts/sync.sh
-          # 若 sync 脚本改动了任何文件, 说明 data/ 没跟上 source-of-truth
-          if ! git diff --quiet; then
-            echo "✗ data/ 目录未与仓库根同步, 请在本地跑 scripts/sync.sh 再提交"
-            git diff --stat
-            exit 1
-          fi
+          python3 scripts/build.py --check
 
   smoke:
     runs-on: ubuntu-latest
@@ -61,15 +58,18 @@ jobs:
         run: |
           mkdir -p /tmp/sw-ci && cd /tmp/sw-ci
           star-word --version
-          star-word verify
+          star-word handshake
+          star-word surfaces
           star-word enable claude-code
           test -f CLAUDE.md
-          test -f .star-word/RULES.md
-          grep -q "star-word:begin" CLAUDE.md
+          test -f .sw/rules.md
+          test -f .sw/claude.md
+          grep -q "sw-managed-begin" CLAUDE.md
+          grep -q "@.sw/claude.md" CLAUDE.md
           echo "值得注意的是，稳稳接住流量。" > dirty.md
           if star-word review dirty.md; then
             echo "✗ review 应返回非 0 退出码"
             exit 1
           fi
           star-word disable claude-code
-          test ! -d .star-word
+          test ! -d .sw

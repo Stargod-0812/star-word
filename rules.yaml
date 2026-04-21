@@ -1,0 +1,383 @@
+# star-word 规则库 —— 单一来源真相
+# 此文件是所有规则定义的 canonical source。RULES.md 与各 adapter body 由 scripts/build.py 自动生成。
+# 直接改此文件，然后跑 scripts/build.py。
+
+meta:
+  version: "0.2.0"
+  language: "zh-Hans"
+  total_rules: 21
+  groups:
+    - id: "词"
+      name: "禁用词典"
+      detect: "mechanical"
+      description: "出现即告警的词汇级违规。正则/子串匹配。"
+    - id: "式"
+      name: "结构 tell"
+      detect: "structural"
+      description: "段落/句法结构层面的 AI 气。结构分析。"
+    - id: "气"
+      name: "语感原则"
+      detect: "semantic"
+      description: "需上下文判断的文气问题。交由宿主模型或人工。"
+
+handshake:
+  # 被问「star-word 在生效吗？」时的标准应答。
+  # 刻意避开英文 "active: ..." 句式；用中文陈述。
+  text: |
+    已加载 star-word v{version}：词表 {word_count} 条，结构 {shape_count} 条，判断 {sense_count} 条。规则正文见 .sw/rules.md。
+
+rules:
+  # -------- 词 —— 禁用词典 --------
+  - id: 词-01
+    code: word_01
+    title: 空洞价值词
+    group: 词
+    why: |
+      这类词是套话工业的通用零件，任何领域都能塞进去，塞进去什么也没说。
+      LLM 爱用，因为它们在语料里高频、听起来「高大上」，但信息密度接近于零。
+    banned_words:
+      - 赋能
+      - 闭环
+      - 抓手
+      - 顶层设计
+      - 多维度
+      - 全面提升
+      - 深度赋能
+      - 打通
+      - 拉通
+      - 加持
+      - 一体化
+      - 全链路
+      - 场景化
+    grey_zone:
+      - word: 链路
+        note: "合法：调用链路、补偿链路、链路追踪；可疑：打通业务链路"
+      - word: 生态
+        note: "合法：开发者生态、生态系统；可疑：赋能产业生态"
+      - word: 布局
+        note: "合法：页面布局、UI 布局；可疑：战略布局"
+      - word: 落地
+        note: "作动词时（让需求落地）"
+      - word: 沉淀
+        note: "作动词时（沉淀经验）"
+      - word: 对齐
+        note: "管理黑话用法"
+      - word: 复盘
+        note: "作动词时（写「回顾」更直接）"
+    bad: "我们通过顶层设计打通数据，全面提升业务闭环能力。"
+    good: "我们把订单服务接到消息队列，延迟从 3 秒降到 200ms。"
+
+  - id: 词-02
+    code: word_02
+    title: AI 过渡套话
+    group: 词
+    why: |
+      LLM 用这类词来「显得在思考」，实际只是在凑字。
+      过渡词是胶水，胶水多了说明句子粘不住。真正有逻辑关系的两句话，直接相邻就能看出关系。
+    banned_words:
+      - 值得注意的是
+      - 值得一提的是
+      - 需要指出的是
+      - 不难发现
+      - 不难看出
+      - 毋庸置疑
+      - 众所周知
+      - 综上所述
+      - 总的来说
+      - 总而言之
+      - 一言以蔽之
+      - 可以说
+      - 可以这么说
+      - 某种程度上
+      - 在一定程度上
+      - 与此同时
+    bad: "值得注意的是，这个函数有 bug。综上所述，需要重写。"
+    good: "这个函数在高并发下会死锁，同时有内存泄漏。得重写。"
+
+  - id: 词-03
+    code: word_03
+    title: 铺垫式开场
+    group: 词
+    why: |
+      第一句话就是信息本身。读者点进来已经知道你要讲什么，不需要「首先让我们看一下」。
+    banned_patterns:
+      - { word: "在当今", match: line_start }
+      - { word: "随着", match: line_start }
+      - { word: "首先让我们", match: line_start }
+      - { word: "接下来我将", match: line_start }
+      - { word: "接下来，我将", match: line_start }
+      - { word: "在本文中", match: line_start }
+      - { word: "让我们一起来", match: line_start }
+      - { word: "让我们先来", match: line_start }
+      - { word: "我们先来了解", match: line_start }
+      - { word: "在开始之前", match: line_start }
+      - { word: "为了更好地", match: line_start }
+    bad: "随着微服务架构的发展，服务间通信成为一个重要议题。本文将介绍 gRPC。"
+    good: "gRPC 是 Google 2015 年开源的 RPC 框架，基于 HTTP/2，用 Protocol Buffers 做序列化。"
+
+  - id: 词-04
+    code: word_04
+    title: 讨好式表达
+    group: 词
+    why: |
+      技术文档不是客服话术。讨好句是 LLM 从客服语料里学来的仪式，对信息没有贡献。
+      技术读者看到「好问题」会翻白眼 —— 他们来看答案，不来被哄。
+    banned_words:
+      - 好问题
+      - 这是一个非常好的问题
+      - 这是一个很好的
+      - 让我来为您解释
+      - 让我为您解释
+      - 让我来为你解释
+      - 希望对你有帮助
+      - 希望能帮到你
+      - 希望这能帮
+      - 如有疑问请
+      - 如有疑问，请
+      - 期待您的反馈
+      - 感谢您的阅读
+      - 抛砖引玉
+      - 不当之处
+      - 以上就是
+      - 以上便是
+    bad: "好问题！让我来为您详细解释。希望这能帮到你，如有疑问欢迎随时提问。"
+    good: "Raft 把共识问题拆成三块：leader election、log replication、safety。下面按这个顺序讲。"
+
+  - id: 词-05
+    code: word_05
+    title: 模糊缓冲
+    group: 词
+    detect_status: semantic  # 歧义大，交给语义判断
+    why: |
+      LLM 被训练成「不要给绝对结论」，所以会在陈述句里塞「可能」、「也许」来稀释立场。
+      判定依据：删掉这个词，句子的真值是否改变？不改变就是废话。
+    grey_words:
+      - 可能
+      - 大概
+      - 也许
+      - 或许
+      - 视情况而定
+      - 某种程度上
+      - 在某种意义上
+      - 在一定程度上
+    bad: "这段代码可能在某种程度上存在一些潜在的性能问题。"
+    good: "这段代码在主循环里做同步 I/O，每次请求多 50ms。"
+
+  - id: 词-06
+    code: word_06
+    title: 滥用「进行」
+    group: 词
+    why: |
+      「进行」是 LLM 的万能降级器。凡是「进行 X」，99% 的时候可以直接写成动词 X。
+    pattern: '进行(?!到|中|不下去|得)([\u4e00-\u9fff]{2})'
+    pattern_exempt: ["到一半"]
+    examples:
+      - bad: "进行分析"
+        good: "分析"
+      - bad: "进行处理"
+        good: "处理"
+      - bad: "进行测试"
+        good: "测试"
+    bad: "对数据进行分析，并进行处理。"
+    good: "分析数据并处理。"
+
+  - id: 词-07
+    code: word_07
+    title: 的字过多
+    group: 词
+    why: |
+      同一个句子里 3 个以上的「的」，基本可以重写。
+      「的」多说明前置定语层层嵌套。中文习惯是拆成多个短句或把定语后置。
+    threshold: 3
+    bad: "这是一个基于深度学习的用于处理大规模图像数据的高性能的推理服务。"
+    good: "这个推理服务基于深度学习，主打高性能和大规模图像数据。"
+
+  - id: 词-08
+    code: word_08
+    title: 拟人化装饰词
+    group: 词
+    why: |
+      技术组件不需要温度、不需要守护、不需要优雅。
+      BAD 例全是情绪词，一个技术细节都没有。
+    banned_words:
+      - 稳稳接住
+      - 稳稳地
+      - 默默守护
+      - 悄然绽放
+      - 温柔地
+      - 从容应对
+      - 有温度地
+      - 贴心地
+      - 智能地
+      - 聪明地
+      - 巧妙地
+      - 轻松搞定
+      - 一键搞定
+      - 丝滑
+      - 丝般顺滑
+      - 如丝般
+      - 保驾护航
+      - 助力腾飞
+      - 赋能前行
+    bad: "我们的系统能稳稳接住流量洪峰，优雅地处理异常，为业务保驾护航。"
+    good: "降级方案：QPS 超阈值时返回缓存版本 + 记录降级日志。异常路径：重试 3 次，失败则写入死信队列。"
+
+  # -------- 式 —— 结构 tell --------
+  - id: 式-01
+    code: shape_01
+    title: 段尾总结句
+    group: 式
+    why: |
+      一段写完就停，不要再补一句「综上」。
+      段尾复述只对没读懂段落的人有用，而那种人你帮不了他。
+    trigger_starters:
+      - 综上所述
+      - 总的来说
+      - 总而言之
+      - 一言以蔽之
+      - 由此可见
+      - 因此可以看出
+      - 综上
+    bad: "Raft 用任期保证唯一 leader。选举需要多数票。综上所述，Raft 保证了 leader 的唯一性。"
+    good: "Raft 用任期保证唯一 leader。选举需要多数票。"
+
+  - id: 式-02
+    code: shape_02
+    title: 机械并列
+    group: 式
+    detect_status: semantic
+    why: |
+      「首先/其次/最后」应该只在信息真的并列、且读者需要显式编号时用。
+      更好的做法是用分号、破折号、或直接换行的自然结构列清楚。
+    bad: "使用 Redis 做缓存有几个好处：首先，它速度快。其次，它支持多种数据结构。最后，它有持久化。"
+    good: "Redis 适合做缓存：内存读写，毫秒级延迟；原生支持 list/set/zset/hash；RDB + AOF 两种持久化可选。"
+
+  - id: 式-03
+    code: shape_03
+    title: 长定语前置
+    group: 式
+    detect_status: semantic
+    why: |
+      主语前的修饰语超过 20 字就应该拆开。
+      中文原生习惯：主谓先讲清楚，复杂修饰后置或分句。
+    threshold: 20
+    bad: "一个能够在高并发场景下处理大规模用户请求的基于 Go 语言实现的分布式网关服务。"
+    good: "分布式网关服务，Go 实现，支撑高并发下的大规模请求。"
+
+  - id: 式-04
+    code: shape_04
+    title: 四字词堆砌
+    group: 式
+    why: |
+      四字词超过 3 个连续出现就是装饰性过度。
+      堆在一起像产品宣传页而不是工程文档。
+    threshold: 3
+    bad: "本系统高效可靠、稳定强大、灵活智能，能够全方位满足各类复杂多变的业务需求。"
+    good: "这个系统的主要特点：单机 1w QPS；RTO < 30s；插件式扩展；配置热加载。"
+
+  - id: 式-05
+    code: shape_05
+    title: 术语前后不一致
+    group: 式
+    detect_status: semantic
+    why: |
+      同一份文档里，同一个概念只用一个名字。
+      读者每切换一次都要做一次等价映射。
+    bad: "训练 Model 需要大量数据。模型训练完成后，导出 model 权重到 S3。"
+    good: "训练 model 需要大量数据。model 训练完成后，导出权重到 S3。"
+
+  - id: 式-06
+    code: shape_06
+    title: 中英文标点混用
+    group: 式
+    why: |
+      中文段落里混入半角 , . ? ! 是 bug 不是风格。
+      中英文之间要有空格：「使用 Redis 做缓存」不是「使用Redis做缓存」。
+    bad: "使用Redis做缓存,可以提升性能.但要注意key的过期策略!"
+    good: "使用 Redis 做缓存，可以提升性能。但要注意 key 的过期策略。"
+
+  - id: 式-07
+    code: shape_07
+    title: 列表滥用
+    group: 式
+    detect_status: semantic
+    why: |
+      能一句话说完就别拆列表；两点也不值得做列表。
+      列表暗示「并列、独立、可跳读」，若点之间有逻辑关系应该是一个句子。
+    bad: |
+      这个方案有以下优点：
+      - 快
+      - 便宜
+      - 好用
+    good: "这个方案快、便宜、好用。"
+
+  # -------- 气 —— 语感原则 --------
+  - id: 气-01
+    code: sense_01
+    title: 第一句直接入题
+    group: 气
+    detect_status: semantic
+    why: |
+      第一句话说的就是正文要讲的那件事本身，不是「我要讲什么」。
+      判定：第一句删掉之后，第二句是否仍能独立成文？能，就是冗余铺垫。
+    bad: "在本文中，我们将探讨分布式锁的实现方案。"
+    good: "用 Redis 做分布式锁是个糟糕的主意。"
+
+  - id: 气-02
+    code: sense_02
+    title: 不说正确但无用的话
+    group: 气
+    detect_status: semantic
+    why: |
+      每一句要么推进认知、要么做取舍、要么给结构。做不到这三件事之一的句子，砍掉。
+      「正确但无用」是最难的规则 —— 句子没毛病，但浪费读者时间。
+    bad: "性能和稳定性同样重要。选型需要综合考虑多方面因素。不同场景适合不同方案。"
+    good: "10w QPS 以下选 MySQL，10w-100w 选 TiDB，超过 100w 基本只能自研分片。"
+
+  - id: 气-03
+    code: sense_03
+    title: 有判断有立场
+    group: 气
+    detect_status: semantic
+    why: |
+      文章要有「我认为」，不只有「有人说」。
+      列参考答案的叫维基百科，不是你。
+    bad: "gRPC 和 REST 各有优劣。gRPC 性能更好但学习成本高，REST 简单但性能差。"
+    good: "内部微服务之间用 gRPC，对外 API 用 REST。别在外部 API 上用 gRPC，代理层一层做不平。"
+
+  - id: 气-04
+    code: sense_04
+    title: 看本质不停在现象
+    group: 气
+    detect_status: semantic
+    why: |
+      表层回答解决字面问题，深层回答先 reframe 问题本身再回答。
+      判定：你给的第一个回答是否回应了「用户真正要解决的问题」？
+    bad: "问：为什么我的服务偶尔 504？答：504 是网关超时。调大 nginx 的 proxy_read_timeout。"
+    good: "问：为什么我的服务偶尔 504？答：先别调超时。504 是症状。根因通常是三类：下游慢、自身同步阻塞、连接池满。先看 RT 分布。"
+
+  - id: 气-05
+    code: sense_05
+    title: 信息密度
+    group: 气
+    detect_status: semantic
+    why: |
+      三句能说完的别用五句。
+      信息密度不足是比信息过载更常见的错误。
+    bad: "这次优化主要是针对数据库查询部分进行的。我们发现，在原有的实现中，存在一些可以改进的地方。经过分析和测试，我们采用了索引优化的方案。最终，性能得到了显著的提升。"
+    good: "给 orders.user_id 加了联合索引 (user_id, created_at)。P99 从 800ms 降到 30ms。"
+
+  - id: 气-06
+    code: sense_06
+    title: 用人话
+    group: 气
+    detect_status: semantic
+    why: |
+      该口语化的地方口语化。技术文档不是公文。
+      滥用「乃/之/其/故/诚然/固然」多半是装。
+    bad: "此问题之根源，乃在于缓存未能及时失效。故而，我们需引入额外之机制以保证一致性。"
+    good: "这个问题的根源是缓存没及时失效，得加个一致性机制。"
+
+escape_hatch: |
+  规则为清晰表达服务，不是目的本身。若严格执行会让句子变蠢、变别扭、变不像人话，破例。
+  但要知道自己在破例 —— 不是默认忽略。
