@@ -3,17 +3,22 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 
-def _run(args, cwd=None):
+def _run(args, cwd=None, extra_env=None):
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
     return subprocess.run(
         [sys.executable, "-m", "star_word.cli", *args],
         cwd=cwd,
         capture_output=True,
         text=True,
+        env=env,
     )
 
 
@@ -28,6 +33,8 @@ def test_cli_surfaces_json():
     assert r.returncode == 0
     data = json.loads(r.stdout)
     assert any(s["surface"] == "claude-code" for s in data)
+    assert any(s["surface"] == "codebuddy" for s in data)
+    assert any(s["surface"] == "workbuddy" for s in data)
     # 确保 mode 命名已去 agent-style 化
     allowed_modes = {"anchor-import", "guarded-block", "manual-paste", "rule-file", "skill-file"}
     for s in data:
@@ -80,6 +87,30 @@ def test_cli_enable_disable_cycle(tmp_path):
     r = _run(["disable", "claude-code"], cwd=tmp_path)
     assert r.returncode == 0
     assert not (tmp_path / ".sw").exists()
+
+
+def test_cli_enable_disable_codebuddy(tmp_path):
+    r = _run(["enable", "codebuddy"], cwd=tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (tmp_path / ".codebuddy" / "rules" / "star-word" / "RULE.mdc").exists()
+
+    r = _run(["disable", "codebuddy"], cwd=tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not (tmp_path / ".codebuddy" / "rules" / "star-word").exists()
+
+
+def test_cli_enable_disable_workbuddy(tmp_path):
+    fake_home = tmp_path / "fake-home"
+    fake_home.mkdir()
+    env = {"HOME": str(fake_home)}
+
+    r = _run(["enable", "workbuddy"], cwd=tmp_path, extra_env=env)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert (fake_home / ".workbuddy" / "skills" / "star-word" / "SKILL.md").exists()
+
+    r = _run(["disable", "workbuddy"], cwd=tmp_path, extra_env=env)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert not (fake_home / ".workbuddy" / "skills" / "star-word").exists()
 
 
 def test_cli_unknown_surface_error():
