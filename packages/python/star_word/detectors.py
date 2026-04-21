@@ -120,6 +120,8 @@ def _mask_line(line: str) -> str:
     out = re.sub(r"\u201c[^\u201d]*\u201d", lambda m: " " * len(m.group(0)), out)  # 中文 ""
     out = re.sub(r"\u2018[^\u2019]*\u2019", lambda m: " " * len(m.group(0)), out)  # 中文 ''
     out = re.sub(r"「[^」]*」", lambda m: " " * len(m.group(0)), out)             # 日式/中文 「」
+    out = re.sub(r'"[^"]*"', lambda m: " " * len(m.group(0)), out)
+    out = re.sub(r"'[^']*'", lambda m: " " * len(m.group(0)), out)
     return out
 
 
@@ -190,7 +192,7 @@ def 词_03(ctx: ScanContext) -> RuleResult:
             paragraph_start = True
             continue
         if paragraph_start:
-            leading = re.sub(r"^[#>\-*\s]+", "", line)
+            leading = re.sub(r"^(?:(?:[#>\-*]+)\s*|\d+[.)、]\s*)+", "", line).lstrip()
             for w in BANNED_词_03:
                 if leading.startswith(w):
                     col = line.find(w)
