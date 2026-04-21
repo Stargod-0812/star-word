@@ -49,6 +49,14 @@ def test_词_03_flags_paragraph_start():
     assert r.status == "violations"
 
 
+def test_词_03_flags_numbered_list_start():
+    text = "1. 在本文中，我们先看缓存一致性。"
+    ctx = detectors._build_ctx(text)
+    r = detectors.词_03(ctx)
+    assert r.status == "violations"
+    assert any("在本文中" in v.message for v in r.violations)
+
+
 def test_词_03_ignores_midparagraph():
     text = "gRPC 是一个 RPC 框架。在本文中出现这几个字不应告警。"
     ctx = detectors._build_ctx(text)
@@ -68,7 +76,7 @@ def test_词_04_flags_flattery():
     assert len(r.violations) >= 3
 
 
-# -------- 词-06 滥用「进行」 --------
+# -------- 词-06 滥用“进行” --------
 
 
 def test_词_06_flags_jinxing_plus_verb():
@@ -176,7 +184,7 @@ def test_式_06_skips_code_punctuation():
     assert r.status == "ok"
 
 
-# -------- 代码块免疫 --------
+# -------- 代码块/引用免疫 --------
 
 
 def test_detectors_skip_code_fences():
@@ -184,7 +192,7 @@ def test_detectors_skip_code_fences():
 正文段落第一句。
 
 ```python
-# 代码内的「赋能」不应该告警
+# 代码内的“赋能”不应该告警
 x = "赋能闭环抓手"
 ```
 
@@ -192,6 +200,13 @@ x = "赋能闭环抓手"
 """
     ctx = detectors._build_ctx(text)
     r = detectors.词_01(ctx)
+    assert r.status == "ok"
+
+
+def test_detectors_skip_ascii_quoted_phrases():
+    text = '这里讨论 "综上所述" 这种套话本身，不是在真的用它收尾。'
+    ctx = detectors._build_ctx(text)
+    r = detectors.词_02(ctx)
     assert r.status == "ok"
 
 
