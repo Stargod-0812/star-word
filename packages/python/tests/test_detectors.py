@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from star_word import detectors
+from star_word.generated_rules import ALL_RULE_IDS
 
 
 # -------- 词-01 空洞价值词 --------
@@ -118,6 +119,20 @@ def test_词_07_clean_pass():
     assert r.status == "ok"
 
 
+def test_词_07_counts_hard_wrapped_sentence():
+    text = "这是一个基于深度学习的\n用于处理大规模数据的高性能的推理服务。"
+    ctx = detectors._build_ctx(text)
+    r = detectors.词_07(ctx)
+    assert r.status == "violations"
+
+
+def test_词_07_ignores_masked_quote_text():
+    text = '这里讨论《的的的》这个标题，不是在真的堆定语。'
+    ctx = detectors._build_ctx(text)
+    r = detectors.词_07(ctx)
+    assert r.status == "ok"
+
+
 # -------- 词-08 拟人化装饰词 --------
 
 
@@ -222,8 +237,28 @@ x = "赋能闭环抓手"
     assert r.status == "ok"
 
 
+def test_detectors_skip_tilde_code_fences():
+    text = """
+正文段落第一句。
+
+~~~python
+x = "赋能闭环抓手"
+~~~
+"""
+    ctx = detectors._build_ctx(text)
+    r = detectors.词_01(ctx)
+    assert r.status == "ok"
+
+
 def test_detectors_skip_ascii_quoted_phrases():
     text = '这里讨论 "综上所述" 这种套话本身，不是在真的用它收尾。'
+    ctx = detectors._build_ctx(text)
+    r = detectors.词_02(ctx)
+    assert r.status == "ok"
+
+
+def test_detectors_skip_book_title_quoted_phrases():
+    text = "这里讨论《综上所述》这个标题本身，不是在真的用它收尾。"
     ctx = detectors._build_ctx(text)
     r = detectors.词_02(ctx)
     assert r.status == "ok"
@@ -235,14 +270,7 @@ def test_detectors_skip_ascii_quoted_phrases():
 def test_review_returns_all_rules():
     text = "你好世界。"
     results = detectors.review(text)
-    rule_ids = {r.rule_id for r in results}
-    expected = {
-        "词-01", "词-02", "词-03", "词-04", "词-06", "词-07", "词-08",
-        "式-01", "式-04", "式-06",
-        "词-05", "式-02", "式-03", "式-05", "式-07",
-        "气-01", "气-02", "气-03", "气-04", "气-05", "气-06",
-    }
-    assert rule_ids == expected
+    assert [r.rule_id for r in results] == ALL_RULE_IDS
 
 
 def test_review_semantic_pending():

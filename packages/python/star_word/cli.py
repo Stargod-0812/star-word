@@ -10,6 +10,7 @@ from typing import List
 
 from . import __version__
 from . import detectors, installer
+from .generated_rules import RULE_GROUP_COUNTS
 
 
 def _error(message: str) -> int:
@@ -27,11 +28,7 @@ def _print_human(r: installer.InstallResult) -> None:
 
 
 def _handshake_payload() -> dict:
-    counts = {"词": 0, "式": 0, "气": 0}
-    for result in detectors.review(""):
-        prefix = result.rule_id.split("-", 1)[0]
-        if prefix in counts:
-            counts[prefix] += 1
+    counts = dict(RULE_GROUP_COUNTS)
     return {
         "version": __version__,
         "counts": counts,
@@ -73,7 +70,10 @@ def cmd_surfaces(args: argparse.Namespace) -> int:
         return 0
     print("支持的接入面:")
     for s in surfaces:
-        print(f"  - {s['surface']:<12} mode={s['mode']:<16} target={s['target']}")
+        print(
+            f"  - {s['surface']:<12} mode={s['mode']:<16} "
+            f"scope={s['scope']:<14} target={s['target']}"
+        )
     return 0
 
 
@@ -154,14 +154,14 @@ def build_parser() -> argparse.ArgumentParser:
     pe = sub.add_parser("enable", help="接线某接入面")
     pe.add_argument("surface")
     pe.add_argument("--global", dest="global_", action="store_true",
-                    help="全局接入（写到用户级目录；具体路径随 surface 而变）")
+                    help="全局接入（仅对支持用户级路径的 surface 生效）")
     pe.add_argument("--json", action="store_true")
     pe.set_defaults(func=cmd_enable)
 
     pd = sub.add_parser("disable", help="拆掉某接入面")
     pd.add_argument("surface")
     pd.add_argument("--global", dest="global_", action="store_true",
-                    help="全局接入（写到用户级目录；具体路径随 surface 而变）")
+                    help="全局接入（仅对支持用户级路径的 surface 生效）")
     pd.add_argument("--json", action="store_true")
     pd.set_defaults(func=cmd_disable)
 

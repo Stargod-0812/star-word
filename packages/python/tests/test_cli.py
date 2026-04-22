@@ -35,13 +35,18 @@ def test_cli_surfaces_json():
     r = _run(["surfaces", "--json"])
     assert r.returncode == 0
     data = json.loads(r.stdout)
-    assert any(s["surface"] == "claude-code" for s in data)
-    assert any(s["surface"] == "codebuddy" for s in data)
-    assert any(s["surface"] == "workbuddy" for s in data)
+    by_surface = {item["surface"]: item for item in data}
+    assert {"claude-code", "agents-md", "codex", "codebuddy", "workbuddy"} <= set(by_surface)
     # 确保 mode 命名已去 agent-style 化
     allowed_modes = {"anchor-import", "guarded-block", "manual-paste", "rule-file", "skill-file"}
     for s in data:
         assert s["mode"] in allowed_modes
+        assert s["scope"] in {"project", "project|global", "user"}
+    assert by_surface["claude-code"]["scope"] == "project|global"
+    assert by_surface["agents-md"]["scope"] == "project"
+    assert by_surface["codex"]["scope"] == "project"
+    assert by_surface["codebuddy"]["scope"] == "project|global"
+    assert by_surface["workbuddy"]["scope"] == "user"
 
 
 def test_cli_handshake():
@@ -115,6 +120,20 @@ def test_cli_enable_codex_reports_pending_manual_step(tmp_path):
     prompt = tmp_path / ".sw" / "codex-system-prompt.md"
     assert prompt.exists()
     assert "## SYSTEM PROMPT" not in prompt.read_text(encoding="utf-8")
+
+
+def test_cli_rejects_agents_md_global(tmp_path):
+    r = _run(["enable", "agents-md", "--global"], cwd=tmp_path)
+    assert r.returncode == 2
+    assert "agents-md 只支持项目级接入" in r.stderr
+    assert "Traceback" not in r.stderr
+
+
+def test_cli_rejects_codex_global(tmp_path):
+    r = _run(["enable", "codex", "--global"], cwd=tmp_path)
+    assert r.returncode == 2
+    assert "codex 只支持项目级接入" in r.stderr
+    assert "Traceback" not in r.stderr
 
 
 def test_cli_enable_disable_codebuddy(tmp_path):

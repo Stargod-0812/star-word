@@ -47,6 +47,10 @@ def _resolve_target_root(global_scope: bool) -> Path:
     return Path.cwd()
 
 
+def _reject_global(surface: str) -> None:
+    raise ValueError(f"{surface} 只支持项目级接入，不支持 --global")
+
+
 def _write_shared_rules(root: Path) -> None:
     """把 rules.md 与 adapter 写到 <root>/.sw/."""
     store = root / STORE_DIR_NAME
@@ -183,6 +187,8 @@ def disable_claude_code(global_scope: bool = False) -> InstallResult:
 
 # guarded-block: 在 AGENTS.md 中嵌入受保护的规则块
 def enable_agents_md(global_scope: bool = False) -> InstallResult:
+    if global_scope:
+        _reject_global("agents-md")
     root = _resolve_target_root(global_scope)
     _write_shared_rules(root)
     agents_md = root / "AGENTS.md"
@@ -205,6 +211,8 @@ def enable_agents_md(global_scope: bool = False) -> InstallResult:
 
 
 def disable_agents_md(global_scope: bool = False) -> InstallResult:
+    if global_scope:
+        _reject_global("agents-md")
     root = _resolve_target_root(global_scope)
     agents_md = root / "AGENTS.md"
     changed = _strip_marker_block(agents_md)
@@ -229,6 +237,8 @@ def disable_agents_md(global_scope: bool = False) -> InstallResult:
 
 # manual-paste: 把 system prompt 写到磁盘，用户自己粘贴到 API
 def enable_codex(global_scope: bool = False) -> InstallResult:
+    if global_scope:
+        _reject_global("codex")
     root = _resolve_target_root(global_scope)
     _write_shared_rules(root)
     prompt_path = root / STORE_DIR_NAME / "codex-system-prompt.md"
@@ -248,6 +258,8 @@ def enable_codex(global_scope: bool = False) -> InstallResult:
 
 
 def disable_codex(global_scope: bool = False) -> InstallResult:
+    if global_scope:
+        _reject_global("codex")
     root = _resolve_target_root(global_scope)
     prompt_path = root / STORE_DIR_NAME / "codex-system-prompt.md"
     existed = prompt_path.exists()
@@ -381,9 +393,34 @@ def disable(surface: str, global_scope: bool = False) -> InstallResult:
 
 def list_surfaces() -> list[dict]:
     return [
-        {"surface": "claude-code", "mode": "anchor-import", "target": "CLAUDE.md"},
-        {"surface": "agents-md", "mode": "guarded-block", "target": "AGENTS.md"},
-        {"surface": "codex", "mode": "manual-paste", "target": f"{STORE_DIR_NAME}/codex-system-prompt.md"},
-        {"surface": "codebuddy", "mode": "rule-file", "target": ".codebuddy/rules/star-word/RULE.mdc"},
-        {"surface": "workbuddy", "mode": "skill-file", "target": "~/.workbuddy/skills/star-word/SKILL.md"},
+        {
+            "surface": "claude-code",
+            "mode": "anchor-import",
+            "target": "CLAUDE.md 或 ~/.claude/CLAUDE.md",
+            "scope": "project|global",
+        },
+        {
+            "surface": "agents-md",
+            "mode": "guarded-block",
+            "target": "AGENTS.md",
+            "scope": "project",
+        },
+        {
+            "surface": "codex",
+            "mode": "manual-paste",
+            "target": f"{STORE_DIR_NAME}/codex-system-prompt.md",
+            "scope": "project",
+        },
+        {
+            "surface": "codebuddy",
+            "mode": "rule-file",
+            "target": ".codebuddy/rules/star-word/RULE.mdc 或 ~/.codebuddy/rules/star-word/RULE.mdc",
+            "scope": "project|global",
+        },
+        {
+            "surface": "workbuddy",
+            "mode": "skill-file",
+            "target": "~/.workbuddy/skills/star-word/SKILL.md",
+            "scope": "user",
+        },
     ]

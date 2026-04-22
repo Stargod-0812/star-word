@@ -12,6 +12,17 @@ import re
 from dataclasses import dataclass, field
 from typing import Callable, List
 
+from .generated_rules import (
+    ALL_RULE_IDS,
+    BANNED_PATTERNS,
+    BANNED_WORDS,
+    REGEX_PATTERNS,
+    RULE_TITLES,
+    SEMANTIC_RULES,
+    THRESHOLDS,
+    TRIGGER_STARTERS,
+)
+
 
 @dataclass(frozen=True)
 class Violation:
@@ -46,78 +57,46 @@ class ScanContext:
     masked_lines: List[str]  # 每行的 inline-code / 引号内容已替换为等长空格
 
 
-# -------- 词典（直接在代码里维护，与 rules.yaml 由 scripts/build.py 校对） --------
+# -------- 由 rules.yaml 生成的规则配置 --------
 
-BANNED_词_01 = [
-    "赋能", "闭环", "抓手", "顶层设计", "多维度", "全面提升", "深度赋能",
-    "打通", "拉通", "加持", "一体化", "全链路", "场景化",
-]
-
-BANNED_词_02 = [
-    "值得注意的是", "值得一提的是", "需要指出的是", "不难发现", "不难看出",
-    "毋庸置疑", "众所周知", "综上所述", "总的来说", "总而言之", "一言以蔽之",
-    "可以说", "可以这么说", "某种程度上", "在一定程度上", "与此同时",
-]
-
-BANNED_词_03 = [
-    "在当今", "随着", "首先让我们", "接下来我将", "接下来，我将", "在本文中",
-    "让我们一起来", "让我们先来", "我们先来了解", "在开始之前", "为了更好地",
-]
-
-BANNED_词_04 = [
-    "好问题", "这是一个非常好的问题", "这是一个很好的",
-    "让我来为您解释", "让我为您解释", "让我来为你解释",
-    "希望对你有帮助", "希望能帮到你", "希望这能帮",
-    "如有疑问请", "如有疑问，请", "期待您的反馈", "感谢您的阅读",
-    "抛砖引玉", "不当之处", "以上就是", "以上便是",
-]
-
-BANNED_词_08 = [
-    "稳稳接住", "稳稳地", "默默守护", "悄然绽放", "温柔地", "从容应对",
-    "有温度地", "贴心地", "智能地", "聪明地", "巧妙地", "轻松搞定", "一键搞定",
-    "丝滑", "丝般顺滑", "如丝般", "保驾护航", "助力腾飞", "赋能前行",
-]
-
-JINXING_VERBS = [
-    "分析", "处理", "测试", "优化", "评估", "设计", "开发", "实现", "部署", "维护",
-    "诊断", "排查", "监控", "校验", "验证", "检查", "比较", "说明", "讨论", "总结",
-    "统计", "配置", "管理", "审查", "审阅", "整理", "梳理", "迁移", "训练", "推理",
-    "建模", "规划", "调整", "复盘", "联调", "改造", "发布", "演练", "修复",
-]
-
-SUMMARY_CLOSERS = [
-    "综上所述", "总的来说", "总而言之", "一言以蔽之",
-    "由此可见", "因此可以看出", "综上",
-]
-
-SEMANTIC_RULES = [
-    ("词-05", "模糊缓冲（需判断是否在谈概率）"),
-    ("式-02", "机械并列（需判断信息是否真并列）"),
-    ("式-03", "长定语前置（需中文句法分析）"),
-    ("式-05", "术语前后不一致（需语义聚合）"),
-    ("式-07", "列表滥用（需判断信息是否真需并列）"),
-    ("气-01", "第一句直接入题"),
-    ("气-02", "不说正确但无用的话"),
-    ("气-03", "有判断、有立场"),
-    ("气-04", "看本质，不停在现象"),
-    ("气-05", "信息密度"),
-    ("气-06", "用人话，不文绉绉"),
-]
+BANNED_词_01 = BANNED_WORDS["词-01"]
+BANNED_词_02 = BANNED_WORDS["词-02"]
+BANNED_词_03 = BANNED_PATTERNS["词-03"]
+BANNED_词_04 = BANNED_WORDS["词-04"]
+BANNED_词_08 = BANNED_WORDS["词-08"]
+JINXING_PATTERN = re.compile(REGEX_PATTERNS["词-06"])
+THRESHOLD_词_07 = THRESHOLDS["词-07"]
+THRESHOLD_式_04 = THRESHOLDS["式-04"]
+SUMMARY_CLOSERS = TRIGGER_STARTERS["式-01"]
+SEMANTIC_RULE_IDS = {rule_id for rule_id, _title in SEMANTIC_RULES}
+SENTENCE_ENDERS = "。！？!?"
 
 
 # -------- 预处理 --------
 
 
+def _match_fence_delimiter(line: str) -> str | None:
+    stripped = line.lstrip()
+    match = re.match(r"(`{3,}|~{3,})", stripped)
+    if not match:
+        return None
+    return match.group(1)[0]
+
+
 def _precompute_fence_map(lines: List[str]) -> List[bool]:
-    """一次遍历，算出每行是否在 ``` code fence 之内。"""
+    """一次遍历，算出每行是否在 fenced code block 之内。"""
     fence_map = [False] * len(lines)
-    in_fence = False
+    fence_char: str | None = None
     for i, line in enumerate(lines):
-        if line.lstrip().startswith("```"):
-            in_fence = not in_fence
-            fence_map[i] = True  # 围栏本身也视为 fence（避免误扫```python 里的```）
-        else:
-            fence_map[i] = in_fence
+        delimiter = _match_fence_delimiter(line)
+        if delimiter is not None:
+            if fence_char is None:
+                fence_char = delimiter
+            elif fence_char == delimiter:
+                fence_char = None
+            fence_map[i] = True
+            continue
+        fence_map[i] = fence_char is not None
     return fence_map
 
 
@@ -127,6 +106,8 @@ def _mask_line(line: str) -> str:
     out = re.sub(r"\u201c[^\u201d]*\u201d", lambda m: " " * len(m.group(0)), out)  # 中文 ""
     out = re.sub(r"\u2018[^\u2019]*\u2019", lambda m: " " * len(m.group(0)), out)  # 中文 ''
     out = re.sub(r"「[^」]*」", lambda m: " " * len(m.group(0)), out)             # 日式/中文 「」
+    out = re.sub(r"『[^』]*』", lambda m: " " * len(m.group(0)), out)
+    out = re.sub(r"《[^》]*》", lambda m: " " * len(m.group(0)), out)
     out = re.sub(r'"[^"]*"', lambda m: " " * len(m.group(0)), out)
     out = re.sub(r"'[^']*'", lambda m: " " * len(m.group(0)), out)
     return out
@@ -248,12 +229,10 @@ def 词_04(ctx: ScanContext) -> RuleResult:
 def 词_06(ctx: ScanContext) -> RuleResult:
     """滥用『进行』：匹配 '进行 + 双音节汉字动词'."""
     out: List[Violation] = []
-    verbs = "|".join(re.escape(verb) for verb in JINXING_VERBS)
-    pattern = re.compile(rf"进行(?!到|中|不下去|得)({verbs})(?![\u4e00-\u9fff])")
     for i, masked in enumerate(ctx.masked_lines):
         if ctx.fence_map[i]:
             continue
-        for m in pattern.finditer(masked):
+        for m in JINXING_PATTERN.finditer(masked):
             verb = m.group(1)
             out.append(Violation(
                 rule_id="词-06",
@@ -268,21 +247,45 @@ def 词_06(ctx: ScanContext) -> RuleResult:
 def 词_07(ctx: ScanContext) -> RuleResult:
     """单句内 ≥ 3 个『的』."""
     out: List[Violation] = []
-    sentence_splitter = re.compile(r"[^。！？!?]+[。！？!?]?")
-    for i, line in enumerate(ctx.lines):
-        if ctx.fence_map[i]:
+    current_chars: List[str] = []
+    start_line: int | None = None
+    start_col: int | None = None
+
+    def flush_sentence() -> None:
+        nonlocal current_chars, start_line, start_col
+        if start_line is None or start_col is None:
+            current_chars = []
+            return
+        sentence = "".join(current_chars)
+        count = sentence.count("的")
+        if count >= THRESHOLD_词_07:
+            out.append(Violation(
+                rule_id="词-07",
+                message=f"单句内出现 {count} 个『的』，前置定语过重",
+                line=start_line,
+                col=start_col,
+                excerpt=_excerpt(ctx.lines[start_line - 1], start_col - 1),
+            ))
+        current_chars = []
+        start_line = None
+        start_col = None
+
+    for line_index, masked in enumerate(ctx.masked_lines, start=1):
+        if ctx.fence_map[line_index - 1] or not masked.strip():
+            flush_sentence()
             continue
-        for m in sentence_splitter.finditer(line):
-            sentence = m.group(0)
-            count = sentence.count("的")
-            if count >= 3:
-                out.append(Violation(
-                    rule_id="词-07",
-                    message=f"单句内出现 {count} 个『的』，前置定语过重",
-                    line=i + 1,
-                    col=m.start() + 1,
-                    excerpt=_excerpt(line, m.start()),
-                ))
+        for col, char in enumerate(masked, start=1):
+            if start_line is None:
+                if char.isspace():
+                    continue
+                start_line = line_index
+                start_col = col
+            current_chars.append(char)
+            if char in SENTENCE_ENDERS:
+                flush_sentence()
+        if current_chars:
+            current_chars.append("\n")
+    flush_sentence()
     return RuleResult("词-07", "ok" if not out else "violations", out)
 
 
@@ -336,19 +339,17 @@ def 式_04(ctx: ScanContext) -> RuleResult:
     不是 AI 堆砌。只有 4 个及以上连用才基本排除合法技术表述，接近装饰性堆砌。
     """
     out: List[Violation] = []
-    pattern = re.compile(
-        r"([\u4e00-\u9fff]{4})[，、,]\s*"
-        r"([\u4e00-\u9fff]{4})[，、,]\s*"
-        r"([\u4e00-\u9fff]{4})[，、,]\s*"
-        r"([\u4e00-\u9fff]{4})"
-    )
+    groups = [r"([\u4e00-\u9fff]{4})"]
+    groups.extend(r"[，、,]\s*([\u4e00-\u9fff]{4})" for _ in range(THRESHOLD_式_04 - 1))
+    pattern = re.compile("".join(groups))
     for i, masked in enumerate(ctx.masked_lines):
         if ctx.fence_map[i]:
             continue
         for m in pattern.finditer(masked):
+            stacked = "、".join(m.groups())
             out.append(Violation(
                 rule_id="式-04",
-                message=f"四字词堆砌：{m.group(1)}、{m.group(2)}、{m.group(3)}、{m.group(4)}",
+                message=f"四字词堆砌：{stacked}",
                 line=i + 1,
                 col=m.start() + 1,
                 excerpt=_excerpt(ctx.lines[i], m.start()),
@@ -385,16 +386,33 @@ def 式_06(ctx: ScanContext) -> RuleResult:
     return RuleResult("式-06", "ok" if not out else "violations", out)
 
 
-DETECTORS: List[Callable[[ScanContext], RuleResult]] = [
-    词_01, 词_02, 词_03, 词_04, 词_06, 词_07, 词_08,
-    式_01, 式_04, 式_06,
-]
+IMPLEMENTED_DETECTORS: dict[str, Callable[[ScanContext], RuleResult]] = {
+    "词-01": 词_01,
+    "词-02": 词_02,
+    "词-03": 词_03,
+    "词-04": 词_04,
+    "词-06": 词_06,
+    "词-07": 词_07,
+    "词-08": 词_08,
+    "式-01": 式_01,
+    "式-04": 式_04,
+    "式-06": 式_06,
+}
 
 
 def review(text: str) -> List[RuleResult]:
-    """返回所有规则的检测结果。"""
+    """按 rules.yaml 顺序返回所有规则的检测结果。"""
     ctx = _build_ctx(text)
-    results = [d(ctx) for d in DETECTORS]
-    for rule_id, _desc in SEMANTIC_RULES:
-        results.append(RuleResult(rule_id=rule_id, status="sense-pending"))
+    results: List[RuleResult] = []
+    for rule_id in ALL_RULE_IDS:
+        detector = IMPLEMENTED_DETECTORS.get(rule_id)
+        if detector is not None:
+            results.append(detector(ctx))
+            continue
+        if rule_id in SEMANTIC_RULE_IDS:
+            results.append(RuleResult(rule_id=rule_id, status="sense-pending"))
+            continue
+        raise RuntimeError(
+            f"规则 {rule_id}（{RULE_TITLES[rule_id]}）在 rules.yaml 中存在，但 detectors.py 没有实现"
+        )
     return results

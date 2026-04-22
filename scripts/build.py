@@ -16,154 +16,33 @@
     - packages/python/star_word/data/rules.yaml             （随包分发的 yaml）
     - packages/python/star_word/data/RULES.md               （复制）
     - packages/python/star_word/data/adapters/*.md          （复制）
+    - packages/python/star_word/generated_rules.py          （运行时规则配置）
     - packages/python/README.md                             （从根 README 同步）
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
+import pprint
 import re
-import shutil
 import sys
 from pathlib import Path
 from typing import Any
 
 
 def _parse_yaml(text: str) -> dict[str, Any]:
-    """最小 YAML 解析器。只支持 rules.yaml 用到的语法。
-
-    不依赖 PyYAML，让 star-word 保持零运行时依赖。
-    """
     try:
         import yaml  # type: ignore
-
-        return yaml.safe_load(text)
-    except ImportError:
-        pass
-
-    # Fallback: 极简 YAML 解析。限制在 rules.yaml 语法范围内（嵌套 dict/list/标量）。
-    lines = text.splitlines()
-    return _yaml_parse_block(lines, 0, 0)[0]
+    except ImportError as exc:
+        raise RuntimeError(
+            "scripts/build.py 依赖 PyYAML。先在 packages/python 下运行 `pip install -e \".[dev]\"`，"
+            "或手动安装 `PyYAML>=6.0`。"
+        ) from exc
+    return yaml.safe_load(text)
 
 
-def _yaml_parse_block(lines: list[str], start: int, indent: int) -> tuple[Any, int]:
-    """解析一个 YAML 块，返回 (value, next_line_index)."""
-    result: dict | list | None = None
-    i = start
-    while i < len(lines):
-        raw = lines[i]
-        if not raw.strip() or raw.lstrip().startswith("#"):
-            i += 1
-            continue
-        line_indent = len(raw) - len(raw.lstrip())
-        if line_indent < indent:
-            break
-        if line_indent > indent:
-            i += 1
-            continue
-        stripped = raw.strip()
-        # List item
-        if stripped.startswith("- "):
-            if result is None:
-                result = []
-            item_text = stripped[2:]
-            if ":" in item_text and not item_text.startswith("{"):
-                # inline dict start
-                key, sep, val = item_text.partition(":")
-                obj: dict = {}
-                if val.strip():
-                    obj[key.strip()] = _yaml_scalar(val.strip())
-                elif i + 1 < len(lines):
-                    sub, next_i = _yaml_parse_block(lines, i + 1, line_indent + 2)
-                    if isinstance(sub, dict):
-                        obj.update(sub)
-                    i = next_i - 1
-                # Check for continuation fields at indent + 2
-                next_line = i + 1
-                while next_line < len(lines):
-                    nraw = lines[next_line]
-                    if not nraw.strip() or nraw.lstrip().startswith("#"):
-                        next_line += 1
-                        continue
-                    nindent = len(nraw) - len(nraw.lstrip())
-                    if nindent == line_indent + 2 and not nraw.strip().startswith("- "):
-                        # Sub-field of this list item
-                        sub, end = _yaml_parse_block(lines, next_line, line_indent + 2)
-                        if isinstance(sub, dict):
-                            obj.update(sub)
-                        i = end - 1
-                        next_line = end
-                    else:
-                        break
-                result.append(obj)
-            elif item_text.startswith("{"):
-                # Inline brace not supported in full — keep simple
-                result.append(_yaml_scalar(item_text))
-            else:
-                result.append(_yaml_scalar(item_text))
-            i += 1
-        elif ":" in stripped:
-            key, sep, val = stripped.partition(":")
-            key = key.strip()
-            val = val.strip()
-            if result is None:
-                result = {}
-            if val == "":
-                # Block value follows
-                sub, end = _yaml_parse_block(lines, i + 1, indent + 2)
-                result[key] = sub  # type: ignore
-                i = end
-            elif val == "|":
-                # Literal block
-                block_lines = []
-                i += 1
-                block_indent = None
-                while i < len(lines):
-                    bline = lines[i]
-                    if not bline.strip():
-                        block_lines.append("")
-                        i += 1
-                        continue
-                    bindent = len(bline) - len(bline.lstrip())
-                    if block_indent is None:
-                        block_indent = bindent
-                    if bindent < block_indent and bline.strip():
-                        break
-                    block_lines.append(bline[block_indent:] if len(bline) >= block_indent else "")
-                    i += 1
-                result[key] = "\n".join(block_lines).rstrip() + "\n"  # type: ignore
-            else:
-                result[key] = _yaml_scalar(val)  # type: ignore
-                i += 1
-        else:
-            i += 1
-    return result if result is not None else {}, i
-
-
-def _yaml_scalar(s: str) -> Any:
-    s = s.strip()
-    if not s:
-        return ""
-    if s.startswith('"') and s.endswith('"'):
-        return s[1:-1]
-    if s.startswith("'") and s.endswith("'"):
-        return s[1:-1]
-    if s == "true":
-        return True
-    if s == "false":
-        return False
-    if s == "null" or s == "~":
-        return None
-    try:
-        return int(s)
-    except ValueError:
-        pass
-    try:
-        return float(s)
-    except ValueError:
-        pass
-    return s
+def _py_repr(value: Any) -> str:
+    return pprint.pformat(value, width=100, sort_dicts=False)
 
 
 # -------- 生成器 --------
@@ -563,6 +442,66 @@ def gen_agents_md_full(data: dict) -> str:
     return "\n".join(out)
 
 
+def gen_python_rules_module(data: dict) -> str:
+    """生成运行时使用的 Python 规则配置模块."""
+    meta = data["meta"]
+    rules = data["rules"]
+    group_counts = {
+        group["id"]: sum(1 for rule in rules if rule["group"] == group["id"])
+        for group in meta["groups"]
+    }
+    all_rule_ids = [rule["id"] for rule in rules]
+    rule_titles = {rule["id"]: rule["title"] for rule in rules}
+    semantic_rules = [
+        (rule["id"], rule["title"])
+        for rule in rules
+        if rule.get("detect_status") == "semantic"
+    ]
+    banned_words = {
+        rule["id"]: rule["banned_words"]
+        for rule in rules
+        if "banned_words" in rule
+    }
+    banned_patterns = {
+        rule["id"]: [item["word"] for item in rule["banned_patterns"]]
+        for rule in rules
+        if "banned_patterns" in rule
+    }
+    regex_patterns = {
+        rule["id"]: rule["pattern"]
+        for rule in rules
+        if "pattern" in rule
+    }
+    thresholds = {
+        rule["id"]: rule["threshold"]
+        for rule in rules
+        if "threshold" in rule
+    }
+    trigger_starters = {
+        rule["id"]: rule["trigger_starters"]
+        for rule in rules
+        if "trigger_starters" in rule
+    }
+
+    out: list[str] = []
+    out.append('"""GENERATED from rules.yaml — 不要手改。"""')
+    out.append("")
+    out.append("from __future__ import annotations")
+    out.append("")
+    out.append(f"VERSION = {_py_repr(meta['version'])}")
+    out.append(f"RULE_GROUP_COUNTS = {_py_repr(group_counts)}")
+    out.append(f"ALL_RULE_IDS = {_py_repr(all_rule_ids)}")
+    out.append(f"RULE_TITLES = {_py_repr(rule_titles)}")
+    out.append(f"SEMANTIC_RULES = {_py_repr(semantic_rules)}")
+    out.append(f"BANNED_WORDS = {_py_repr(banned_words)}")
+    out.append(f"BANNED_PATTERNS = {_py_repr(banned_patterns)}")
+    out.append(f"REGEX_PATTERNS = {_py_repr(regex_patterns)}")
+    out.append(f"THRESHOLDS = {_py_repr(thresholds)}")
+    out.append(f"TRIGGER_STARTERS = {_py_repr(trigger_starters)}")
+    out.append("")
+    return "\n".join(out)
+
+
 # -------- 主入口 --------
 
 
@@ -578,9 +517,14 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     text = yaml_path.read_text(encoding="utf-8")
-    data = _parse_yaml(text)
+    try:
+        data = _parse_yaml(text)
+    except RuntimeError as exc:
+        print(f"错误：{exc}", file=sys.stderr)
+        return 2
 
     # 生成所有产物
+    generated_rules = gen_python_rules_module(data)
     generated = {
         repo_root / "RULES.md": gen_rules_md(data),
         repo_root / "adapters" / "claude-code.md": gen_claude_adapter(data),
@@ -588,6 +532,7 @@ def main(argv: list[str] | None = None) -> int:
         repo_root / "adapters" / "codex.md": gen_codex_adapter(data),
         repo_root / "adapters" / "codebuddy.md": gen_codebuddy_adapter(data),
         repo_root / "adapters" / "workbuddy.md": gen_workbuddy_adapter(data),
+        repo_root / "packages" / "python" / "star_word" / "generated_rules.py": generated_rules,
     }
 
     # 镜像到包数据目录

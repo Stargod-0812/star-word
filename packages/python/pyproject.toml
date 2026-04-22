@@ -8,12 +8,11 @@ version = "0.2.1"
 description = "中文技术写作规则集（21 条）. Drop-in for Claude Code, Codex, Cursor, AGENTS.md-compatible agents."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = "MIT"
 authors = [{ name = "Stargod-0812" }]
 keywords = ["writing", "chinese", "linter", "claude-code", "agent", "rules", "llm"]
 classifiers = [
     "Development Status :: 3 - Alpha",
-    "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.9",
@@ -41,7 +40,7 @@ where = ["."]
 include = ["star_word*"]
 
 [tool.setuptools.package-data]
-star_word = ["data/**/*.md", "data/**/*.json", "data/**/*.yaml"]
+star_word = ["data/**/*.md", "data/**/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

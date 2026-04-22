@@ -70,27 +70,52 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install
+      - name: Build wheel
         run: |
-          cd packages/python
-          pip install -e .
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m build packages/python --wheel --outdir /tmp/star-word-wheel
 
-      - name: End-to-end enable → review → disable
+      - name: Install built wheel into clean venv
+        run: |
+          python -m venv /tmp/sw-wheel-env
+          /tmp/sw-wheel-env/bin/pip install --upgrade pip
+          /tmp/sw-wheel-env/bin/pip install /tmp/star-word-wheel/*.whl
+
+      - name: Smoke built wheel outside source tree
         run: |
           mkdir -p /tmp/sw-ci && cd /tmp/sw-ci
-          star-word --version
-          star-word handshake
-          star-word surfaces
-          star-word enable claude-code
+          /tmp/sw-wheel-env/bin/star-word --version
+          /tmp/sw-wheel-env/bin/star-word handshake
+          /tmp/sw-wheel-env/bin/star-word surfaces --json > surfaces.json
+          python - <<'PY'
+          import json
+
+          with open("/tmp/sw-ci/surfaces.json", encoding="utf-8") as f:
+              surfaces = {item["surface"]: item for item in json.load(f)}
+
+          assert surfaces["claude-code"]["scope"] == "project|global"
+          assert surfaces["agents-md"]["scope"] == "project"
+          assert surfaces["codex"]["scope"] == "project"
+          assert surfaces["workbuddy"]["scope"] == "user"
+          PY
+          /tmp/sw-wheel-env/bin/star-word enable claude-code
+          /tmp/sw-wheel-env/bin/star-word enable codex
           test -f CLAUDE.md
           test -f .sw/rules.md
-          test -f .sw/claude.md
+          test -f .sw/codex-system-prompt.md
           grep -q "sw-managed-begin" CLAUDE.md
           grep -q "@.sw/claude.md" CLAUDE.md
           echo "值得注意的是，稳稳接住流量。" > dirty.md
-          if star-word review dirty.md; then
+          if /tmp/sw-wheel-env/bin/star-word review dirty.md; then
             echo "✗ review 应返回非 0 退出码"
             exit 1
           fi
-          star-word disable claude-code
+          /tmp/sw-wheel-env/bin/star-word disable claude-code
+          test -d .sw
+          /tmp/sw-wheel-env/bin/star-word disable codex
           test ! -d .sw
+          if /tmp/sw-wheel-env/bin/star-word enable agents-md --global; then
+            echo "✗ agents-md --global 应返回非 0 退出码"
+            exit 1
+          fi

@@ -111,6 +111,16 @@ def test_disable_codex_cleans_shared_store_when_unused(tmp_project):
     assert not (tmp_project / ".sw").exists()
 
 
+def test_agents_md_rejects_global_scope():
+    with pytest.raises(ValueError, match="agents-md 只支持项目级接入"):
+        installer.enable("agents-md", global_scope=True)
+
+
+def test_codex_rejects_global_scope():
+    with pytest.raises(ValueError, match="codex 只支持项目级接入"):
+        installer.enable("codex", global_scope=True)
+
+
 # -------- CodeBuddy surface --------
 
 
@@ -189,10 +199,16 @@ def test_disable_workbuddy(tmp_path, monkeypatch):
 
 def test_all_surfaces_listed():
     surfaces = installer.list_surfaces()
-    names = {s["surface"] for s in surfaces}
+    by_surface = {s["surface"]: s for s in surfaces}
+    names = set(by_surface)
     assert {"claude-code", "agents-md", "codex", "codebuddy", "workbuddy"} <= names
     modes = {s["mode"] for s in surfaces}
     assert {"anchor-import", "guarded-block", "manual-paste", "rule-file", "skill-file"} <= modes
+    assert by_surface["claude-code"]["scope"] == "project|global"
+    assert by_surface["agents-md"]["scope"] == "project"
+    assert by_surface["codex"]["scope"] == "project"
+    assert by_surface["codebuddy"]["scope"] == "project|global"
+    assert by_surface["workbuddy"]["scope"] == "user"
 
 
 def test_unknown_surface_raises():

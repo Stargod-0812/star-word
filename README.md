@@ -118,8 +118,8 @@ star-word review examples/before.md
 | 接入面 | 模式 | 目标文件 |
 | --- | --- | --- |
 | Claude Code | `anchor-import` | `CLAUDE.md`（项目级或 `~/.claude/CLAUDE.md` 全局级）|
-| AGENTS.md 兼容（Codex CLI / Zed / Jules / Warp / Gemini CLI / VS Code） | `guarded-block` | `AGENTS.md` |
-| Codex API | `manual-paste` | `.sw/codex-system-prompt.md`（手动粘贴到 `system_prompt`）|
+| AGENTS.md 兼容（Codex CLI / Zed / Jules / Warp / Gemini CLI / VS Code） | `guarded-block` | `AGENTS.md`（仅项目级，不支持 `--global`） |
+| Codex API | `manual-paste` | `.sw/codex-system-prompt.md`（仅项目级，手动粘贴到 `system_prompt`）|
 | CodeBuddy（腾讯云代码助手） | `rule-file` | `.codebuddy/rules/star-word/RULE.mdc`（项目级）或 `~/.codebuddy/rules/star-word/RULE.mdc`（`--global`） |
 | WorkBuddy（腾讯 AI 桌面智能体） | `skill-file` | `~/.workbuddy/skills/star-word/SKILL.md`（始终用户级） |
 
@@ -145,6 +145,10 @@ star-word handshake --json               # 机器可读自检信息
 star-word enable claude-code             # 当前目录
 star-word enable claude-code --global    # 全局（写到 ~/.claude/CLAUDE.md）
 star-word disable claude-code [--global]
+star-word enable agents-md               # 项目级；不支持 --global
+star-word enable codex                   # 项目级；写 .sw/codex-system-prompt.md
+star-word enable codebuddy --global      # 写到 ~/.codebuddy/rules/star-word/RULE.mdc
+star-word enable workbuddy               # 始终写到 ~/.workbuddy/skills/star-word/SKILL.md
 
 # 审阅
 star-word review path/to/doc.md          # 人类可读输出
