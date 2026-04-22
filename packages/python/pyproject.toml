@@ -34,14 +34,14 @@ Issues = "https://github.com/Stargod-0812/star-word/issues"
 star-word = "star_word.cli:main"
 
 [project.optional-dependencies]
-dev = ["pytest>=7.0", "pytest-cov>=4.0"]
+dev = ["pytest>=7.0", "pytest-cov>=4.0", "PyYAML>=6.0"]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["star_word*"]
 
 [tool.setuptools.package-data]
-star_word = ["data/**/*.md", "data/**/*.json"]
+star_word = ["data/**/*.md", "data/**/*.json", "data/**/*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

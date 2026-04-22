@@ -27,6 +27,7 @@ class InstallResult:
     wired: bool            # 是否已接线
     target: str            # 操作的文件路径
     notes: str = ""
+    status_label: str = ""
 
 
 def _data_path(*parts: str) -> Path:
@@ -104,6 +105,41 @@ def _strip_marker_block(target_file: Path) -> bool:
     return True
 
 
+def _has_marker_block(target_file: Path) -> bool:
+    if not target_file.is_file():
+        return False
+    current = target_file.read_text(encoding="utf-8")
+    return MARKER_BEGIN in current and MARKER_END in current
+
+
+def _extract_fenced_system_prompt(adapter_text: str) -> str:
+    match = re.search(r"^## SYSTEM PROMPT\s+```(?:\w+)?\n(.*?)\n```", adapter_text, flags=re.DOTALL | re.MULTILINE)
+    if not match:
+        raise ValueError("codex adapter 缺少 SYSTEM PROMPT fenced block")
+    return match.group(1).rstrip() + "\n"
+
+
+def _shared_store_in_use(root: Path) -> bool:
+    store = root / STORE_DIR_NAME
+    if not store.exists():
+        return False
+    return any(
+        (
+            _has_marker_block(root / "CLAUDE.md"),
+            _has_marker_block(root / "AGENTS.md"),
+            (store / "codex-system-prompt.md").exists(),
+        )
+    )
+
+
+def _cleanup_shared_store(root: Path) -> bool:
+    store = root / STORE_DIR_NAME
+    if not store.exists() or _shared_store_in_use(root):
+        return False
+    shutil.rmtree(store)
+    return True
+
+
 # -------- surfaces --------
 
 # anchor-import: 在目标文件写入一个 @-anchor 指向项目内的规则文件
@@ -118,6 +154,7 @@ def enable_claude_code(global_scope: bool = False) -> InstallResult:
         wired=True,
         target=str(claude_md),
         notes=f"规则落到 {root/STORE_DIR_NAME}；{claude_md} 追加了 @-anchor 块。",
+        status_label="已接线",
     )
 
 
@@ -125,15 +162,22 @@ def disable_claude_code(global_scope: bool = False) -> InstallResult:
     root = _resolve_target_root(global_scope)
     claude_md = root / "CLAUDE.md"
     changed = _strip_marker_block(claude_md)
-    sw_dir = root / STORE_DIR_NAME
-    if sw_dir.exists():
-        shutil.rmtree(sw_dir)
+    cleaned = _cleanup_shared_store(root)
+    if changed and cleaned:
+        notes = "清掉 marker 块并清理未再使用的 .sw/"
+    elif changed:
+        notes = "清掉 marker 块；保留 .sw/ 供其他接入面继续使用。"
+    elif cleaned:
+        notes = f"未见 marker 块；已清理未再使用的 {STORE_DIR_NAME}/"
+    else:
+        notes = "未见 marker 块；保留现有共享文件。"
     return InstallResult(
         surface="claude-code",
         mode="anchor-import",
         wired=False,
         target=str(claude_md),
-        notes=("清掉 marker 块并删除 .sw/" if changed else f"未见 marker 块；已清理 {STORE_DIR_NAME}/（若存在）"),
+        notes=notes,
+        status_label="未接线 / 已拆除",
     )
 
 
@@ -156,6 +200,7 @@ def enable_agents_md(global_scope: bool = False) -> InstallResult:
         wired=True,
         target=str(agents_md),
         notes=f"{agents_md} 加入 marker 块；规则落到 {root/STORE_DIR_NAME}。",
+        status_label="已接线",
     )
 
 
@@ -163,15 +208,22 @@ def disable_agents_md(global_scope: bool = False) -> InstallResult:
     root = _resolve_target_root(global_scope)
     agents_md = root / "AGENTS.md"
     changed = _strip_marker_block(agents_md)
-    sw_dir = root / STORE_DIR_NAME
-    if sw_dir.exists():
-        shutil.rmtree(sw_dir)
+    cleaned = _cleanup_shared_store(root)
+    if changed and cleaned:
+        notes = "清掉 marker 块并清理未再使用的 .sw/"
+    elif changed:
+        notes = "清掉 marker 块；保留 .sw/ 供其他接入面继续使用。"
+    elif cleaned:
+        notes = f"未见 marker 块；已清理未再使用的 {STORE_DIR_NAME}/"
+    else:
+        notes = "未见 marker 块；保留现有共享文件。"
     return InstallResult(
         surface="agents-md",
         mode="guarded-block",
         wired=False,
         target=str(agents_md),
-        notes=("清掉 marker 块并删除 .sw/" if changed else f"未见 marker 块；已清理 {STORE_DIR_NAME}/（若存在）"),
+        notes=notes,
+        status_label="未接线 / 已拆除",
     )
 
 
@@ -180,26 +232,43 @@ def enable_codex(global_scope: bool = False) -> InstallResult:
     root = _resolve_target_root(global_scope)
     _write_shared_rules(root)
     prompt_path = root / STORE_DIR_NAME / "codex-system-prompt.md"
-    shutil.copy2(_data_path("adapters", "codex.md"), prompt_path)
+    adapter_text = _data_path("adapters", "codex.md").read_text(encoding="utf-8")
+    prompt_path.write_text(_extract_fenced_system_prompt(adapter_text), encoding="utf-8")
     return InstallResult(
         surface="codex",
         mode="manual-paste",
         wired=False,  # 真正生效需要用户手动粘贴
         target=str(prompt_path),
         notes=(
-            f"system prompt 已写入 {prompt_path}。\n"
-            "手动步骤：把该文件 ## SYSTEM PROMPT 小节 ``` 块中的内容粘贴到 Codex API 的 system_prompt 字段。"
+            f"system prompt 正文已写入 {prompt_path}。\n"
+            "手动步骤：把该文件内容粘贴到 Codex API 的 system_prompt 字段。"
         ),
+        status_label="已写入，待手动接线",
     )
 
 
 def disable_codex(global_scope: bool = False) -> InstallResult:
+    root = _resolve_target_root(global_scope)
+    prompt_path = root / STORE_DIR_NAME / "codex-system-prompt.md"
+    existed = prompt_path.exists()
+    if existed:
+        prompt_path.unlink()
+    cleaned = _cleanup_shared_store(root)
+    if existed and cleaned:
+        notes = "已删除 codex system prompt，并清理未再使用的 .sw/。"
+    elif existed:
+        notes = "已删除 codex system prompt；保留 .sw/ 供其他接入面继续使用。"
+    elif cleaned:
+        notes = f"未发现 codex system prompt；已清理未再使用的 {STORE_DIR_NAME}/。"
+    else:
+        notes = "未发现 codex system prompt。"
     return InstallResult(
         surface="codex",
         mode="manual-paste",
         wired=False,
-        target="",
-        notes="manual-paste 模式不写磁盘配置；请手动从 API 的 system_prompt 里删掉粘贴内容。",
+        target=str(prompt_path),
+        notes=notes + " 请手动从 API 的 system_prompt 里删掉已粘贴内容。",
+        status_label="未接线 / 已拆除",
     )
 
 
@@ -225,6 +294,7 @@ def enable_codebuddy(global_scope: bool = False) -> InstallResult:
             f"CodeBuddy 规则文件已写入 {target}。\n"
             "注意：新建对话会话后规则才生效（CodeBuddy 仅在会话开始时加载规则）。"
         ),
+        status_label="已接线",
     )
 
 
@@ -242,6 +312,7 @@ def disable_codebuddy(global_scope: bool = False) -> InstallResult:
         wired=False,
         target=str(rule_dir),
         notes=("已删除 star-word 规则目录。" if existed else "未发现 star-word 规则目录。"),
+        status_label="未接线 / 已拆除",
     )
 
 
@@ -264,6 +335,7 @@ def enable_workbuddy(global_scope: bool = False) -> InstallResult:
             f"WorkBuddy skill 已写入 {target}。\n"
             "注意：需重启 WorkBuddy 让 skill 被识别（手动放入机制）。"
         ),
+        status_label="已接线",
     )
 
 
@@ -278,6 +350,7 @@ def disable_workbuddy(global_scope: bool = False) -> InstallResult:
         wired=False,
         target=str(skill_dir),
         notes=("已删除 star-word skill 目录。" if existed else "未发现 star-word skill 目录。"),
+        status_label="未接线 / 已拆除",
     )
 
 

@@ -94,6 +94,13 @@ def test_词_06_spares_legitimate_jinxing():
     assert r.status == "ok"
 
 
+def test_词_06_skips_noun_compounds():
+    text = "建议先进行性能优化，再讨论英语里的进行时态。"
+    ctx = detectors._build_ctx(text)
+    r = detectors.词_06(ctx)
+    assert r.status == "ok"
+
+
 # -------- 词-07 的字过多 --------
 
 
@@ -175,6 +182,18 @@ def test_式_06_flags_halfwidth_in_chinese():
     ctx = detectors._build_ctx(text)
     r = detectors.式_06(ctx)
     assert r.status == "violations"
+
+
+def test_式_06_flags_mixed_script_and_terminal_halfwidth():
+    text = "使用 Redis 做缓存, 可以提升性能。这是一句中文. 兼容 7.0, 中文说明继续。这样写可以吗?"
+    ctx = detectors._build_ctx(text)
+    r = detectors.式_06(ctx)
+    assert r.status == "violations"
+    assert len(r.violations) == 4
+    messages = [v.message for v in r.violations]
+    assert messages.count("中文段落混用半角标点：',' 应为全角") == 2
+    assert "中文段落混用半角标点：'.' 应为全角" in messages
+    assert "中文段落混用半角标点：'?' 应为全角" in messages
 
 
 def test_式_06_skips_code_punctuation():

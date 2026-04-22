@@ -12,8 +12,13 @@ from . import __version__
 from . import detectors, installer
 
 
+def _error(message: str) -> int:
+    print(f"错误: {message}", file=sys.stderr)
+    return 2
+
+
 def _print_human(r: installer.InstallResult) -> None:
-    state = "已接线" if r.wired else "未接线 / 已拆除"
+    state = r.status_label or ("已接线" if r.wired else "未接线 / 已拆除")
     print(f"[star-word] {r.surface} ({r.mode}): {state}")
     if r.target:
         print(f"  目标: {r.target}")
@@ -21,24 +26,27 @@ def _print_human(r: installer.InstallResult) -> None:
         print(f"  备注: {r.notes}")
 
 
-def _handshake_text() -> str:
+def _handshake_payload() -> dict:
     counts = {"词": 0, "式": 0, "气": 0}
     for result in detectors.review(""):
         prefix = result.rule_id.split("-", 1)[0]
         if prefix in counts:
             counts[prefix] += 1
-    return (
-        f"已加载 star-word v{__version__}：词表 {counts['词']} 条，"
-        f"结构 {counts['式']} 条，判断 {counts['气']} 条。规则正文见 .sw/rules.md。"
-    )
+    return {
+        "version": __version__,
+        "counts": counts,
+        "text": (
+            f"已加载 star-word v{__version__}：词表 {counts['词']} 条，"
+            f"结构 {counts['式']} 条，判断 {counts['气']} 条。规则正文见 .sw/rules.md。"
+        ),
+    }
 
 
 def cmd_enable(args: argparse.Namespace) -> int:
     try:
         r = installer.enable(args.surface, global_scope=args.global_)
-    except ValueError as e:
-        print(f"错误: {e}", file=sys.stderr)
-        return 2
+    except (OSError, ValueError) as e:
+        return _error(str(e))
     if args.json:
         print(json.dumps(r.__dict__, ensure_ascii=False, indent=2))
     else:
@@ -49,9 +57,8 @@ def cmd_enable(args: argparse.Namespace) -> int:
 def cmd_disable(args: argparse.Namespace) -> int:
     try:
         r = installer.disable(args.surface, global_scope=args.global_)
-    except ValueError as e:
-        print(f"错误: {e}", file=sys.stderr)
-        return 2
+    except (OSError, ValueError) as e:
+        return _error(str(e))
     if args.json:
         print(json.dumps(r.__dict__, ensure_ascii=False, indent=2))
     else:
@@ -73,13 +80,15 @@ def cmd_surfaces(args: argparse.Namespace) -> int:
 def cmd_review(args: argparse.Namespace) -> int:
     path = Path(args.file)
     if not path.exists():
-        print(f"错误: 文件不存在 {path}", file=sys.stderr)
-        return 2
+        return _error(f"文件不存在 {path}")
+    if not path.is_file():
+        return _error(f"不是普通文件 {path}")
     try:
         text = path.read_text(encoding="utf-8")
     except UnicodeDecodeError as e:
-        print(f"错误: 无法以 UTF-8 解码 {path}: {e}", file=sys.stderr)
-        return 2
+        return _error(f"无法以 UTF-8 解码 {path}: {e}")
+    except OSError as e:
+        return _error(f"无法读取 {path}: {e}")
 
     results = detectors.review(text)
 
@@ -126,7 +135,11 @@ def cmd_review(args: argparse.Namespace) -> int:
 
 def cmd_handshake(args: argparse.Namespace) -> int:
     """打印自检 handshake 字符串（与 adapter 里写的一致）."""
-    print(_handshake_text())
+    payload = _handshake_payload()
+    if args.json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(payload["text"])
     return 0
 
 
@@ -141,13 +154,14 @@ def build_parser() -> argparse.ArgumentParser:
     pe = sub.add_parser("enable", help="接线某接入面")
     pe.add_argument("surface")
     pe.add_argument("--global", dest="global_", action="store_true",
-                    help="全局接入（写到 ~/.claude/ 而非 CWD）")
+                    help="全局接入（写到用户级目录；具体路径随 surface 而变）")
     pe.add_argument("--json", action="store_true")
     pe.set_defaults(func=cmd_enable)
 
     pd = sub.add_parser("disable", help="拆掉某接入面")
     pd.add_argument("surface")
-    pd.add_argument("--global", dest="global_", action="store_true")
+    pd.add_argument("--global", dest="global_", action="store_true",
+                    help="全局接入（写到用户级目录；具体路径随 surface 而变）")
     pd.add_argument("--json", action="store_true")
     pd.set_defaults(func=cmd_disable)
 
@@ -162,6 +176,7 @@ def build_parser() -> argparse.ArgumentParser:
     pr.set_defaults(func=cmd_review)
 
     ph = sub.add_parser("handshake", help="打印自检口令")
+    ph.add_argument("--json", action="store_true")
     ph.set_defaults(func=cmd_handshake)
 
     return p

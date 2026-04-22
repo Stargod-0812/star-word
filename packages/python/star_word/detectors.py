@@ -78,6 +78,13 @@ BANNED_词_08 = [
     "丝滑", "丝般顺滑", "如丝般", "保驾护航", "助力腾飞", "赋能前行",
 ]
 
+JINXING_VERBS = [
+    "分析", "处理", "测试", "优化", "评估", "设计", "开发", "实现", "部署", "维护",
+    "诊断", "排查", "监控", "校验", "验证", "检查", "比较", "说明", "讨论", "总结",
+    "统计", "配置", "管理", "审查", "审阅", "整理", "梳理", "迁移", "训练", "推理",
+    "建模", "规划", "调整", "复盘", "联调", "改造", "发布", "演练", "修复",
+]
+
 SUMMARY_CLOSERS = [
     "综上所述", "总的来说", "总而言之", "一言以蔽之",
     "由此可见", "因此可以看出", "综上",
@@ -140,6 +147,32 @@ def _excerpt(line: str, col: int, width: int = 80) -> str:
     prefix = "…" if start > 0 else ""
     suffix = "…" if end < len(line) else ""
     return f"{prefix}{line[start:end]}{suffix}"
+
+
+def _is_han(char: str | None) -> bool:
+    return bool(char) and bool(re.fullmatch(r"[\u4e00-\u9fff]", char))
+
+
+def _is_ascii_word_char(char: str | None) -> bool:
+    return bool(char) and char.isascii() and (char.isalnum() or char in {"_", "/"})
+
+
+def _prev_non_space(text: str, idx: int) -> tuple[str | None, int | None]:
+    pos = idx
+    while pos >= 0:
+        if not text[pos].isspace():
+            return text[pos], pos
+        pos -= 1
+    return None, None
+
+
+def _next_non_space(text: str, idx: int) -> tuple[str | None, int | None]:
+    pos = idx
+    while pos < len(text):
+        if not text[pos].isspace():
+            return text[pos], pos
+        pos += 1
+    return None, None
 
 
 def _scan_banned(
@@ -215,7 +248,8 @@ def 词_04(ctx: ScanContext) -> RuleResult:
 def 词_06(ctx: ScanContext) -> RuleResult:
     """滥用『进行』：匹配 '进行 + 双音节汉字动词'."""
     out: List[Violation] = []
-    pattern = re.compile(r"进行(?!到|中|不下去|得)([\u4e00-\u9fff]{2})")
+    verbs = "|".join(re.escape(verb) for verb in JINXING_VERBS)
+    pattern = re.compile(rf"进行(?!到|中|不下去|得)({verbs})(?![\u4e00-\u9fff])")
     for i, masked in enumerate(ctx.masked_lines):
         if ctx.fence_map[i]:
             continue
@@ -325,18 +359,28 @@ def 式_04(ctx: ScanContext) -> RuleResult:
 def 式_06(ctx: ScanContext) -> RuleResult:
     """中文段落里混入半角标点."""
     out: List[Violation] = []
-    pattern = re.compile(r"([\u4e00-\u9fff])([,.!?])([\u4e00-\u9fff])")
     for i, masked in enumerate(ctx.masked_lines):
         if ctx.fence_map[i]:
             continue
-        for m in pattern.finditer(masked):
-            punct = m.group(2)
+        if not re.search(r"[\u4e00-\u9fff]", masked):
+            continue
+        for col, punct in enumerate(masked):
+            if punct not in ",.!?":
+                continue
+            left_char, left_pos = _prev_non_space(masked, col - 1)
+            right_char, _right_pos = _next_non_space(masked, col + 1)
+            if punct == "." and left_char and right_char and left_char.isdigit() and right_char.isdigit():
+                continue
+            if _is_ascii_word_char(left_char) and _is_ascii_word_char(right_char):
+                continue
+            if not any((_is_han(left_char), _is_han(right_char), right_char is None and left_pos is not None and re.search(r"[\u4e00-\u9fff]", masked[:left_pos + 1]))):
+                continue
             out.append(Violation(
                 rule_id="式-06",
                 message=f"中文段落混用半角标点：{punct!r} 应为全角",
                 line=i + 1,
-                col=m.start(2) + 1,
-                excerpt=_excerpt(ctx.lines[i], m.start(2)),
+                col=col + 1,
+                excerpt=_excerpt(ctx.lines[i], col),
             ))
     return RuleResult("式-06", "ok" if not out else "violations", out)
 

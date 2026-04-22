@@ -61,7 +61,7 @@ star-word enable claude-code --global
 
 # 3. 验证（新开 Claude Code 会话）
 #    问 "star-word 在生效吗？"
-#    应答："已加载 star-word v0.2.0：词表 8 条，结构 7 条，判断 6 条..."
+#    应答："已加载 star-word v0.2.1：词表 8 条，结构 7 条，判断 6 条..."
 
 # 4. 审阅一份文档
 star-word review examples/before.md
@@ -95,7 +95,7 @@ star-word review examples/before.md
 | 式-01 | 段尾总结句：`综上所述`、`总的来说` 式段落收尾 |
 | 式-02 | 机械并列：强套 `首先/其次/最后` 模板（语义判断） |
 | 式-03 | 长定语前置：主语前的定语超过 20 字（语义判断） |
-| 式-04 | 四字词堆砌：连续 3 个及以上四字结构并列 |
+| 式-04 | 四字词堆砌：连续 4 个及以上四字结构并列 |
 | 式-05 | 术语前后不一致：`Model / 模型 / model` 混用（语义判断） |
 | 式-06 | 中英文标点混用：中文段落里混半角 `, . ? !` |
 | 式-07 | 列表滥用：能一句话说完的拆成 2 项列表（语义判断） |
@@ -139,6 +139,7 @@ Cursor、GitHub Copilot、Aider 等待 v0.3 适配。
 star-word --version                      # 版本
 star-word surfaces                       # 列出接入面
 star-word handshake                      # 打印自检口令
+star-word handshake --json               # 机器可读自检信息
 
 # 接线 / 拆除
 star-word enable claude-code             # 当前目录
@@ -149,7 +150,7 @@ star-word disable claude-code [--global]
 star-word review path/to/doc.md          # 人类可读输出
 star-word review path/to/doc.md --json   # 机器可读 JSON
 
-# 所有子命令都支持 --json 供脚本调用
+# enable / disable / surfaces / review / handshake 都支持 --json
 ```
 
 **退出码**：
@@ -211,7 +212,7 @@ star-word disable agents-md
 pip uninstall star-word
 ```
 
-`disable` 会清 `.sw/` 目录和 `CLAUDE.md` / `AGENTS.md` 里的 marker 块（marker 之外的用户内容不动）。
+`disable` 会清理对应的 marker 块或规则文件。只有当没有其他接入面继续使用共享 `.sw/` 时，才会删除该目录。marker 之外的用户内容不动。
 
 ---
 
@@ -242,7 +243,7 @@ git clone https://github.com/Stargod-0812/star-word.git
 cd star-word/packages/python
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                          # 44 个测试，全应通过
+pytest                          # 测试应全通过
 
 # 改规则：
 cd ~/code/star-word

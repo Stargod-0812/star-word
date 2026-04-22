@@ -11,6 +11,9 @@ from pathlib import Path
 
 def _run(args, cwd=None, extra_env=None):
     env = os.environ.copy()
+    package_root = Path(__file__).resolve().parent.parent
+    existing_pythonpath = env.get("PYTHONPATH")
+    env["PYTHONPATH"] = str(package_root) if not existing_pythonpath else os.pathsep.join([str(package_root), existing_pythonpath])
     if extra_env:
         env.update(extra_env)
     return subprocess.run(
@@ -50,6 +53,15 @@ def test_cli_handshake():
     assert "active:" not in r.stdout
 
 
+def test_cli_handshake_json():
+    r = _run(["handshake", "--json"])
+    assert r.returncode == 0
+    data = json.loads(r.stdout)
+    assert data["version"]
+    assert data["counts"] == {"词": 8, "式": 7, "气": 6}
+    assert "已加载 star-word" in data["text"]
+
+
 def test_cli_review_clean(tmp_path):
     f = tmp_path / "clean.md"
     f.write_text("订单服务延迟 3ms，用 Redis 做缓存。\n", encoding="utf-8")
@@ -78,6 +90,13 @@ def test_cli_review_json(tmp_path):
     assert rule_02["violation_count"] >= 1
 
 
+def test_cli_review_directory_error(tmp_path):
+    r = _run(["review", str(tmp_path)])
+    assert r.returncode == 2
+    assert "不是普通文件" in r.stderr
+    assert "Traceback" not in r.stderr
+
+
 def test_cli_enable_disable_cycle(tmp_path):
     r = _run(["enable", "claude-code"], cwd=tmp_path)
     assert r.returncode == 0, r.stdout + r.stderr
@@ -87,6 +106,15 @@ def test_cli_enable_disable_cycle(tmp_path):
     r = _run(["disable", "claude-code"], cwd=tmp_path)
     assert r.returncode == 0
     assert not (tmp_path / ".sw").exists()
+
+
+def test_cli_enable_codex_reports_pending_manual_step(tmp_path):
+    r = _run(["enable", "codex"], cwd=tmp_path)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert "已写入，待手动接线" in r.stdout
+    prompt = tmp_path / ".sw" / "codex-system-prompt.md"
+    assert prompt.exists()
+    assert "## SYSTEM PROMPT" not in prompt.read_text(encoding="utf-8")
 
 
 def test_cli_enable_disable_codebuddy(tmp_path):

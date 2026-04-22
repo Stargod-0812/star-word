@@ -47,6 +47,15 @@ def test_enable_then_disable(tmp_project):
     assert not (tmp_project / ".sw").exists()
 
 
+def test_disable_claude_code_keeps_shared_store_for_agents_md(tmp_project):
+    installer.enable("claude-code")
+    installer.enable("agents-md")
+    installer.disable("claude-code")
+    assert (tmp_project / "AGENTS.md").exists()
+    assert (tmp_project / ".sw" / "rules.md").exists()
+    assert (tmp_project / ".sw" / "claude.md").exists()
+
+
 def test_enable_preserves_existing_claude_md(tmp_project):
     existing = "# 我的全局规则\n\n原有内容。\n"
     (tmp_project / "CLAUDE.md").write_text(existing, encoding="utf-8")
@@ -80,7 +89,26 @@ def test_enable_codex_writes_prompt(tmp_project):
     r = installer.enable("codex")
     assert r.wired is False  # manual-paste 模式
     assert "codex-system-prompt.md" in r.target
-    assert (tmp_project / ".sw" / "codex-system-prompt.md").exists()
+    prompt = tmp_project / ".sw" / "codex-system-prompt.md"
+    assert prompt.exists()
+    content = prompt.read_text(encoding="utf-8")
+    assert "## SYSTEM PROMPT" not in content
+    assert "with open" not in content
+    assert "中文技术写作规则 21 条" in content
+
+
+def test_disable_codex_removes_prompt_but_keeps_shared_store_if_needed(tmp_project):
+    installer.enable("claude-code")
+    installer.enable("codex")
+    installer.disable("codex")
+    assert not (tmp_project / ".sw" / "codex-system-prompt.md").exists()
+    assert (tmp_project / ".sw" / "rules.md").exists()
+
+
+def test_disable_codex_cleans_shared_store_when_unused(tmp_project):
+    installer.enable("codex")
+    installer.disable("codex")
+    assert not (tmp_project / ".sw").exists()
 
 
 # -------- CodeBuddy surface --------
@@ -214,6 +242,14 @@ def test_golden_snapshot_claude_rules(tmp_project):
     installed = tmp_project / ".sw" / "rules.md"
     src = Path(__file__).resolve().parent.parent / "star_word" / "data" / "RULES.md"
     assert _sha256(installed) == _sha256(src), ".sw/rules.md 内容与 data/RULES.md 不一致"
+
+
+def test_golden_snapshot_claude_rules_yaml(tmp_project):
+    """锁定 .sw/rules.yaml 的 hash."""
+    installer.enable("claude-code")
+    installed = tmp_project / ".sw" / "rules.yaml"
+    src = Path(__file__).resolve().parent.parent / "star_word" / "data" / "rules.yaml"
+    assert _sha256(installed) == _sha256(src), ".sw/rules.yaml 内容与 data/rules.yaml 不一致"
 
 
 def test_golden_snapshot_claude_adapter(tmp_project):
