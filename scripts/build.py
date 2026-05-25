@@ -47,6 +47,30 @@ def _parse_yaml(text: str) -> dict[str, Any]:
     return _yaml_parse_block(lines, 0, 0)[0]
 
 
+def _parse_inline_dict(s: str) -> dict:
+    """解析 YAML inline dict: { key: value, key: value }."""
+    s = s.strip()
+    if s.startswith("{"):
+        s = s[1:]
+    if s.endswith("}"):
+        s = s[:-1]
+    result = {}
+    # Split on commas not inside quotes
+    parts = re.split(r',\s*(?=\w+\s*:)', s)
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
+        key, _, val = part.partition(":")
+        key = key.strip()
+        val = val.strip()
+        if key and val:
+            result[key] = _yaml_scalar(val)
+        elif key:
+            result[key] = ""
+    return result
+
+
 def _yaml_parse_block(lines: list[str], start: int, indent: int) -> tuple[Any, int]:
     """解析一个 YAML 块，返回 (value, next_line_index)."""
     result: dict | list | None = None
@@ -98,8 +122,8 @@ def _yaml_parse_block(lines: list[str], start: int, indent: int) -> tuple[Any, i
                         break
                 result.append(obj)
             elif item_text.startswith("{"):
-                # Inline brace not supported in full — keep simple
-                result.append(_yaml_scalar(item_text))
+                # Inline dict: { key: value, key: value }
+                result.append(_parse_inline_dict(item_text))
             else:
                 result.append(_yaml_scalar(item_text))
             i += 1
