@@ -133,7 +133,7 @@ def cmd_handshake(args: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="star-word",
-        description="star-word —— 中文技术写作规则集（21 条）",
+        description="star-word —— 中文技术写作规则集（22 条）",
     )
     p.add_argument("--version", action="version", version=f"star-word {__version__}")
     sub = p.add_subparsers(dest="command", required=True)

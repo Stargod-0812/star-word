@@ -210,6 +210,44 @@ def test_detectors_skip_ascii_quoted_phrases():
     assert r.status == "ok"
 
 
+# -------- 式-08 句长方差 --------
+
+
+def test_式_08_uniform_length_triggers():
+    """句长趋同的段落应触发告警。"""
+    text = (
+        "我们采用了微服务架构来构建这个系统。"
+        "每个服务负责一个独立的业务领域模块。"
+        "服务之间通过消息队列来异步通信交互。"
+        "这种架构能够支撑大规模的并发请求。"
+        "整体部署采用了容器化的方式来管理。"
+    )
+    ctx = detectors._build_ctx(text)
+    r = detectors.式_08(ctx)
+    assert r.status == "violations"
+    assert len(r.violations) >= 1
+
+
+def test_式_08_varied_length_ok():
+    """句长有变化的段落不应触发。"""
+    text = (
+        "微服务架构。每个服务管一个领域，消息队列串起来。"
+        "好处是扩缩容独立——订单服务扛不住了加 pod，不用动支付。"
+        "代价是分布式事务，后面细说。"
+    )
+    ctx = detectors._build_ctx(text)
+    r = detectors.式_08(ctx)
+    assert r.status == "ok"
+
+
+def test_式_08_too_few_sentences_skip():
+    """少于 4 句不检测。"""
+    text = "句子一。句子二。句子三。"
+    ctx = detectors._build_ctx(text)
+    r = detectors.式_08(ctx)
+    assert r.status == "ok"
+
+
 # -------- review() 编排 --------
 
 
@@ -219,7 +257,7 @@ def test_review_returns_all_rules():
     rule_ids = {r.rule_id for r in results}
     expected = {
         "词-01", "词-02", "词-03", "词-04", "词-06", "词-07", "词-08",
-        "式-01", "式-04", "式-06",
+        "式-01", "式-04", "式-06", "式-08",
         "词-05", "式-02", "式-03", "式-05", "式-07",
         "气-01", "气-02", "气-03", "气-04", "气-05", "气-06",
     }

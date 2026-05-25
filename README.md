@@ -1,8 +1,8 @@
 # star-word
 
-**21 条中文技术写作规则，治 LLM 中文输出的 AI 味。**
+**22 条中文技术写作规则，治 LLM 中文输出的 AI 味。**
 
-把规则注入到 Claude Code / Codex / 任何支持 `AGENTS.md` 的 agent，让它生成的中文不再出现「稳稳接住」、「赋能闭环」、「综上所述」、「希望对你有帮助」这类套话。
+把规则注入到 Claude Code / Codex / 任何支持 `AGENTS.md` 的 agent，大幅减少「稳稳接住」、「赋能闭环」、「综上所述」、「希望对你有帮助」这类套话，同时通过 forcing function 把语感规则从被动标准变成主动自检。
 
 ```
 before.md  →  机械规则违规 20 处（AI 味满格）
@@ -18,7 +18,7 @@ rules.yaml                          （唯一来源）
     │
     ▼ scripts/build.py
     │
-    ├─► RULES.md                    （规则全文，21 条）
+    ├─► RULES.md                    （规则全文，22 条）
     ├─► adapters/claude-code.md     （Claude Code 接入口）
     ├─► adapters/AGENTS.md          （AGENTS.md 兼容）
     ├─► adapters/codex.md           （Codex API 系统提示）
@@ -33,20 +33,14 @@ rules.yaml                          （唯一来源）
 
 LLM 写中文技术文字有一套可识别的 tell pattern：
 
-- **空洞套话**：`赋能`、`闭环`、`顶层设计`、`多维度`、`全面提升`
-- **AI 过渡词**：`值得注意的是`、`综上所述`、`不难发现`、`毋庸置疑`
-- **讨好式开场/收尾**：`好问题`、`让我来为您解释`、`希望对你有帮助`
-- **铺垫式第一句**：`在当今XX领域中`、`随着XX的发展`、`众所周知`
-- **拟人化装饰**：`稳稳接住`、`默默守护`、`保驾护航`、`丝滑`
-- **无意义缓冲**：`可能`、`在某种程度上`、`一定程度上`
-- **段尾复述**：每段最后都要「综上所述」一下
+LLM 写中文技术文字有一套可识别的 tell pattern：空洞套话（赋能/闭环/全面提升）、AI 过渡词（值得注意的是/综上所述）、讨好式开场收尾（好问题/希望对你有帮助）、铺垫第一句（在当今/随着）、拟人装饰（稳稳接住/保驾护航/丝滑）、无意义缓冲（可能/某种程度上）、段尾复述。这些词句在预训练语料里高频，模型本能复用。技术读者看到就翻白眼。
 
-这些词句在预训练语料里高频出现，模型本能复用。技术读者看到就翻白眼。
+但词表只是表层。真正区分人写和 AI 写的是信息选择、节奏变化、具体性、判断力。v0.3 的核心改进：把语感规则从被动"判断标准"变成主动 forcing function——模型每生成一段中文，必须过 6 条自检，不过就重写。
 
 star-word 做两件事：
 
-1. **生成时约束**：把规则注入 agent 系统提示，让模型起草时就不写这些。
-2. **审阅时检测**：提供 `star-word review` 命令，对已有 markdown/文档做机械检测，指出违规位置。
+1. **生成时约束**：规则 + 自检流程注入 agent 系统提示，让模型起草时就避开 AI 味。
+2. **审阅时检测**：`star-word review` 对已有文档做机械 + 结构检测，指出违规位置。
 
 ---
 
@@ -54,14 +48,14 @@ star-word 做两件事：
 
 ```bash
 # 1. 从源码安装（暂未发布到 PyPI，v0.3 计划发）
-pip install "git+https://github.com/Stargod-0812/star-word.git@v0.2.1#subdirectory=packages/python"
+pip install "git+https://github.com/Stargod-0812/star-word.git@v0.3.0#subdirectory=packages/python"
 
 # 2. 全局接入 Claude Code（所有项目生效）
 star-word enable claude-code --global
 
 # 3. 验证（新开 Claude Code 会话）
 #    问 "star-word 在生效吗？"
-#    应答："已加载 star-word v0.2.0：词表 8 条，结构 7 条，判断 6 条..."
+#    应答："已加载 star-word v0.3.0：词表 8 条，结构 8 条，判断 6 条..."
 
 # 4. 审阅一份文档
 star-word review examples/before.md
@@ -71,7 +65,7 @@ star-word review examples/before.md
 
 ---
 
-## 21 条规则
+## 22 条规则
 
 分三组。机械规则和结构规则由 `star-word review` 自动检测；语义规则由宿主模型或人工判断。完整规则体见 [`RULES.md`](./RULES.md)。
 
@@ -95,10 +89,11 @@ star-word review examples/before.md
 | 式-01 | 段尾总结句：`综上所述`、`总的来说` 式段落收尾 |
 | 式-02 | 机械并列：强套 `首先/其次/最后` 模板（语义判断） |
 | 式-03 | 长定语前置：主语前的定语超过 20 字（语义判断） |
-| 式-04 | 四字词堆砌：连续 3 个及以上四字结构并列 |
+| 式-04 | 四字词堆砌：连续 4 个及以上四字结构并列 |
 | 式-05 | 术语前后不一致：`Model / 模型 / model` 混用（语义判断） |
 | 式-06 | 中英文标点混用：中文段落里混半角 `, . ? !` |
 | 式-07 | 列表滥用：能一句话说完的拆成 2 项列表（语义判断） |
+| 式-08 | 句长方差过低：段落内句长 std < 5 且 ≥ 4 句，节奏单调 |
 
 ### 气 —— 语感原则（语义判断）
 
@@ -164,7 +159,7 @@ star-word review path/to/doc.md --json   # 机器可读 JSON
 不想装 pip 包也行：
 
 ```bash
-VER=v0.2.1
+VER=v0.3.0
 mkdir -p .sw
 curl -fsSLo .sw/rules.md       "https://raw.githubusercontent.com/Stargod-0812/star-word/${VER}/RULES.md"
 curl -fsSLo .sw/claude.md      "https://raw.githubusercontent.com/Stargod-0812/star-word/${VER}/adapters/claude-code.md"
@@ -255,7 +250,7 @@ python3 scripts/build.py --check   # CI 用：断言产物与 yaml 同步
 
 ```
 star-word/
-├── rules.yaml                      # 唯一来源（21 条规则）
+├── rules.yaml                      # 唯一来源（22 条规则）
 ├── scripts/build.py                # rules.yaml → 所有产物
 ├── RULES.md                        # 生成：规则全文
 ├── adapters/                       # 生成：各 surface 的接入口
@@ -288,9 +283,9 @@ star-word/
 
 ## Roadmap
 
-- **v0.3**：MCP server（`get_rules` / `review_text` 两个 tool，让任何 MCP 客户端直接接入）、LLM-as-judge runtime 为语义规则落地、Cursor / Copilot adapter、cross-model benchmark
-- **v0.4**：adaptive learning（记录用户接受/拒绝的改写，推导团队偏好）、自动改写建议、npm 包
-- **v1.0**：汉语技术写作句势图谱 —— 规则不是词表，是 typed edge graph，从「套话」到「人话」的分类转换关系
+- **v0.4**：MCP server（`get_rules` / `review_text` 两个 tool，让任何 MCP 客户端直接接入）、LLM-as-judge runtime 为语义规则量化评分、Cursor / Copilot adapter、cross-model benchmark
+- **v0.5**：adaptive learning（记录用户接受/拒绝的改写，推导团队偏好）、自动改写建议、npm 包
+- **v1.0**：从词表升级为转换图谱——不是告诉模型"别写 X"，而是给出"X 应该变成 Y"的映射关系，让规则从禁止型变为引导型
 
 ---
 

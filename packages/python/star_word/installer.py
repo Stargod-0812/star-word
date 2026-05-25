@@ -194,12 +194,22 @@ def enable_codex(global_scope: bool = False) -> InstallResult:
 
 
 def disable_codex(global_scope: bool = False) -> InstallResult:
+    root = _resolve_target_root(global_scope)
+    sw_dir = root / STORE_DIR_NAME
+    existed = sw_dir.exists()
+    if existed:
+        shutil.rmtree(sw_dir)
     return InstallResult(
         surface="codex",
         mode="manual-paste",
         wired=False,
         target="",
-        notes="manual-paste 模式不写磁盘配置；请手动从 API 的 system_prompt 里删掉粘贴内容。",
+        notes=(
+            f"已清理 {STORE_DIR_NAME}/。"
+            "手动步骤：从 API 的 system_prompt 里删掉粘贴内容。"
+            if existed else
+            "未发现 .sw/ 目录。请手动从 API 的 system_prompt 里删掉粘贴内容。"
+        ),
     )
 
 

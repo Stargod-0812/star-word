@@ -1,6 +1,6 @@
-"""star-word 检测器（v0.2）.
+"""star-word 检测器（v0.3）.
 
-规则 ID 使用中文分组前缀：词-01..08 / 式-01..07 / 气-01..06。
+规则 ID 使用中文分组前缀：词-01..08 / 式-01..08 / 气-01..06。
 机械 / 结构规则由 review() 直接检测；语义规则标记为 sense-pending 交给宿主模型或人工。
 
 性能：_precompute_fence_map 在扫描文档时只计算一次，避免每条规则 O(N²) 重扫。
@@ -52,6 +52,15 @@ BANNED_词_01 = [
     "赋能", "闭环", "抓手", "顶层设计", "多维度", "全面提升", "深度赋能",
     "打通", "拉通", "加持", "一体化", "全链路", "场景化",
 ]
+
+# 上下文感知：grey_zone 词只在套话上下文里告警，合法技术用法不报
+CONTEXT_词_01 = {
+    "打通": {
+        "ban_contexts": ["打通数据", "打通链路", "打通壁垒", "打通业务"],
+        "allow_contexts": ["打通隧道", "打通网络", "打通管道"],
+    },
+}
+
 
 BANNED_词_02 = [
     "值得注意的是", "值得一提的是", "需要指出的是", "不难发现", "不难看出",
@@ -115,13 +124,14 @@ def _precompute_fence_map(lines: List[str]) -> List[bool]:
 
 
 def _mask_line(line: str) -> str:
-    """把 inline code / 中英文引号 / 中文引号内的内容替换为等长空格，避免 meta 引用误报。"""
+    """把 inline code / 引号 / HTML 标签内容替换为等长空格，避免 meta 引用误报。"""
     out = re.sub(r"`[^`]*`", lambda m: " " * len(m.group(0)), line)
-    out = re.sub(r"\u201c[^\u201d]*\u201d", lambda m: " " * len(m.group(0)), out)  # 中文 ""
-    out = re.sub(r"\u2018[^\u2019]*\u2019", lambda m: " " * len(m.group(0)), out)  # 中文 ''
+    out = re.sub(r"\u201c[^\u201d]*\u201d", lambda m: " " * len(m.group(0)), out)  # 中文 “”
+    out = re.sub(r"\u2018[^\u2019]*\u2019", lambda m: " " * len(m.group(0)), out)  # 中文 ‘’
     out = re.sub(r"「[^」]*」", lambda m: " " * len(m.group(0)), out)             # 日式/中文 「」
     out = re.sub(r'"[^"]*"', lambda m: " " * len(m.group(0)), out)
     out = re.sub(r"'[^']*'", lambda m: " " * len(m.group(0)), out)
+    out = re.sub(r"<[^>]+>", lambda m: " " * len(m.group(0)), out)  # HTML 标签
     return out
 
 
@@ -232,9 +242,10 @@ def 词_06(ctx: ScanContext) -> RuleResult:
 
 
 def 词_07(ctx: ScanContext) -> RuleResult:
-    """单句内 ≥ 3 个『的』."""
+    """单句内 ≥ 3 个『的』. 用分号/冒号/句号/叹号/问号分句。"""
     out: List[Violation] = []
-    sentence_splitter = re.compile(r"[^。！？!?]+[。！？!?]?")
+    # 分号和冒号也算句子边界——分号后是新子句，冒号后是新说明
+    sentence_splitter = re.compile(r"[^。！？!?；;：:]+[。！？!?；;：:]?")
     for i, line in enumerate(ctx.lines):
         if ctx.fence_map[i]:
             continue
@@ -341,9 +352,65 @@ def 式_06(ctx: ScanContext) -> RuleResult:
     return RuleResult("式-06", "ok" if not out else "violations", out)
 
 
+def 式_08(ctx: ScanContext) -> RuleResult:
+    """句长方差过低：段落内句子长度标准差 < 5 且句子数 ≥ 4。
+
+    AI 生成的段落句长趋同（每句 22-28 字，std < 5）。
+    人写的节奏有变化：长句铺逻辑，短句下结论，断句制造停顿。
+    """
+    out: List[Violation] = []
+    # 按中文句号/叹号/问号切句
+    sent_splitter = re.compile(r"[^。！？!?\n]+[。！？!?]?")
+    paragraph: List[int] = []
+
+    def _check_paragraph(line_indices: List[int]) -> None:
+        if not line_indices:
+            return
+        # 收集段落所有句子长度
+        lengths: List[int] = []
+        for idx in line_indices:
+            if ctx.fence_map[idx]:
+                continue
+            line = ctx.lines[idx].strip()
+            if not line or line.startswith("#") or line.startswith("|") or line.startswith("-"):
+                continue
+            for m in sent_splitter.finditer(line):
+                s = m.group(0).strip()
+                if len(s) >= 4:  # 忽略极短片段
+                    lengths.append(len(s))
+        if len(lengths) < 4:
+            return
+        mean = sum(lengths) / len(lengths)
+        variance = sum((x - mean) ** 2 for x in lengths) / len(lengths)
+        std = variance ** 0.5
+        if std < 5.0:
+            first_line = line_indices[0]
+            out.append(Violation(
+                rule_id="式-08",
+                message=f"句长方差过低（std={std:.1f}，{len(lengths)} 句，均长 {mean:.0f} 字）——节奏单一",
+                line=first_line + 1,
+                col=1,
+                excerpt=_excerpt(ctx.lines[first_line], 0),
+            ))
+
+    for i, line in enumerate(ctx.lines):
+        if ctx.fence_map[i]:
+            if paragraph:
+                _check_paragraph(paragraph)
+                paragraph = []
+            continue
+        if not line.strip():
+            _check_paragraph(paragraph)
+            paragraph = []
+        else:
+            paragraph.append(i)
+    _check_paragraph(paragraph)
+    return RuleResult("式-08", "ok" if not out else "violations", out)
+
+
 DETECTORS: List[Callable[[ScanContext], RuleResult]] = [
     词_01, 词_02, 词_03, 词_04, 词_06, 词_07, 词_08,
-    式_01, 式_04, 式_06,
+    式_01, 式_04, 式_06, 式_08,
 ]
 
 
