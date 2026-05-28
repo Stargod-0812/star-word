@@ -1,5 +1,61 @@
 # CHANGELOG
 
+## v0.4.4 — 2026-05-28
+
+Round 5 4-subagent panel（架构 60-63、Code 65-68、Security 57、Product 74）的全量响应。
+panel 共识 critical：v0.4.3 的 `_assert_path_within` 实测可被绕过——多个 reviewer
+独立 PoC 验证 codebuddy/workbuddy 任意写 + 任意删都能跑通。
+
+### CRITICAL 安全
+
+- **路径 symlink 真修复**（security R3 V1 + architect 共识，CVSS 9.0）：v0.4.3 的
+  `_assert_path_within` 用 `resolve()+is_relative_to()` 在 target 与 root 都跟随同一
+  symlink 时永远 True，攻击成功。新增 `_assert_no_symlink_in_path(path)` —— mkdir
+  **之前**沿 lexical path（absolute() 不 resolve）walk 每个 ancestor，遇 symlink 立即
+  raise。codebuddy/workbuddy 的 enable/disable 都在 mkdir/rmtree **前**调用。macOS
+  `/var → /private/var` 等系统级 symlink 在白名单内豁免（用户无感知）。
+- **rewriter dropped_count 显式暴露**（Round 4+5 critical 持续未修）：之前
+  `violations[:max_violations]` 静默截断，docstring 说「不静默」自相矛盾。CLI 现在
+  在 fix 输出末尾打印「⚠ 还有 N 处违规未改写（受 --max X 限制），用 --max <total>
+  看全部」。JSON 输出也加 `total_violations` / `dropped` 字段。
+
+### HIGH
+
+- **`scripts/build.py` 真用共享 `_yaml`**（architect HIGH 2）：v0.4.3 抽 `_yaml.py` 时
+  只改 detectors，build.py 留着 160 行重复 parser，single-source 是半成品。v0.4.4
+  build.py 顶部 `from star_word._yaml import parse_yaml`，重复代码删干净。
+- **`_yaml.py` 测试覆盖** (Round 5 code reviewer)：v0.4.3 抽出但 9% coverage
+  （131/144 行未测）。新增 `tests/test_yaml.py` 12 条 — 强制 `monkeypatch
+  __import__` 让 yaml ImportError 走 fallback path，覆盖 nested dict / list / inline /
+  literal block / 深度 64 / 真实 rules.yaml 解析。
+
+### Product
+
+- **README PEP 668 安装段**（product reviewer ONE CHANGE）：macOS Homebrew /
+  Debian 12+ / Ubuntu 24.04 默认拒绝系统 `pip install`（externally-managed-environment）。
+  README 60 秒安装第一行命令在 50%+ 用户机器上直接挂。改 venv-first 三行 + pipx
+  alternative，并加 `star-word --version` 验证步骤。
+- **测试数同步**：README "248 个测试（v0.4.3）" → "273 个测试（v0.4.4）"。
+
+### 检测精度待办（架构师 HIGH 3 留 v0.4.5）
+
+- **词-04 hybrid 6-字阈值漏抓 4-5 字结构 closer**：`以上就是` / `以上便是` / `不当之处` /
+  `如有疑问请` / `希望这能帮` / `抛砖引玉` 等都是后接中文的 AI 套话段尾，AND 边界让它们漏抓。
+  v0.4.5 计划在 yaml 加 `boundary: strict|none|substring` 字段细分；v0.4.4 暂留行为不动
+  避免引入新边缘 case。
+
+### 测试
+
+- 255 → 273（+18）。新增：codebuddy/workbuddy 中间组件 symlink 三向 PoC、`_yaml.py`
+  fallback 12 条、`_mask_line` `[a](b...` ReDoS、build.py 共享 _yaml 静态校验。
+
+### 不兼容变更
+
+- 无。v0.4.3 → v0.4.4 仅修 bug + 加 README，对正常使用场景行为不变。
+  symlink 防御原本就是 best-effort 安全层，加严不影响正常路径。
+
+---
+
 ## v0.4.3 — 2026-05-28
 
 Round 4 4-subagent panel（架构 65 / 63、Code 70-71、Security 70-63、Product 46）的全量响应。

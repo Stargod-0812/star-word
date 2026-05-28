@@ -102,8 +102,7 @@ def suggest_rewrites(
     if not violations:
         return []
 
-    # truncated 标记保留供未来 telemetry 用（CLI 可在显示时提示"还有 N 处未改写"）
-    # 但当前未使用，避免静默丢用户数据；max_violations 上限用户在 CLI 显式选择
+    # v0.4.4: 显式截断（CLI 在调用前已计算 dropped 个数并显示给用户）
     violations = violations[:max_violations]
 
     # 用 key 关联 violation，不靠位置 zip

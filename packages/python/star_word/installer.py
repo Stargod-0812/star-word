@@ -69,6 +69,28 @@ def _safe_copy(src: Path, dst: Path) -> None:
     shutil.copy2(src, dst)
 
 
+def _assert_no_symlink_in_path(path: Path) -> None:
+    """v0.4.4: mkdir 之前 walk path 的所有 ancestors，遇 symlink 立即 raise。
+
+    Round 5 security/architect 共识 critical：之前 _assert_path_within 在 mkdir 之后
+    校验失败——target.resolve() 与 root.resolve() 都跟随同一 symlink，is_relative_to
+    永远 True。攻击者预置 `.codebuddy → ~/.ssh/`，mkdir 静默穿透，攻击成功。
+
+    真修：mkdir **之前**用 lexical path（absolute() 不 resolve）walk 每个 ancestor，
+    任一是 symlink → raise（macOS `/var → /private/var` 等系统级 symlink 在白名单内豁免）。
+    """
+    _SAFE_SYSTEM_SYMLINKS = {Path("/var"), Path("/tmp"), Path("/etc")}
+    abs_path = path.absolute()
+    # 从 / 向下到 path：reversed(parents) 后接 path 自身
+    ancestors_top_down = list(reversed(list(abs_path.parents))) + [abs_path]
+    for ancestor in ancestors_top_down:
+        if ancestor.is_symlink() and ancestor not in _SAFE_SYSTEM_SYMLINKS:
+            raise ValueError(
+                f"路径 {ancestor} 是 symlink；拒绝操作避免穿透到 attacker dir。"
+                f"完整路径 {path} 包含 symlink 中间组件。"
+            )
+
+
 def _assert_path_within(target: Path, root: Path) -> None:
     """v0.4.3 安全：确保 target 实际解析后仍在 root 内，防中间组件 symlink 攻击。
 
@@ -349,6 +371,9 @@ def enable_codebuddy(global_scope: bool = False) -> InstallResult:
     else:
         intended_root = Path.cwd() / ".codebuddy"
     rule_dir = intended_root / "rules" / "star-word"
+    # v0.4.4 (Round 5 security CRITICAL V1): mkdir 之前 walk ancestors，否则
+    # mkdir(parents=True) 静默跟随 .codebuddy → /attacker_dir symlink 穿透。
+    _assert_no_symlink_in_path(rule_dir)
     rule_dir.mkdir(parents=True, exist_ok=True)
     _assert_path_within(rule_dir, intended_root)
     target = rule_dir / "RULE.mdc"
@@ -373,7 +398,8 @@ def disable_codebuddy(global_scope: bool = False) -> InstallResult:
     rule_dir = intended_root / "rules" / "star-word"
     existed = rule_dir.exists()
     if existed:
-        # v0.4.3: rmtree 前校验 — 防中间组件 symlink 让 rmtree 删任意目录
+        # v0.4.4: rmtree 前严格校验 — 防中间组件 symlink 让 rmtree 删任意目录
+        _assert_no_symlink_in_path(rule_dir)
         _assert_path_within(rule_dir, intended_root)
         shutil.rmtree(rule_dir)
     return InstallResult(
@@ -390,10 +416,11 @@ def enable_workbuddy(global_scope: bool = False) -> InstallResult:
     """接入 WorkBuddy: 写 ~/.workbuddy/skills/star-word/SKILL.md.
 
     WorkBuddy 的 skills 只支持用户级，忽略 --global 参数（无项目级概念）。
-    v0.4.3 安全加固：同 codebuddy，mkdir 后校验中间组件无 symlink 越权。
+    v0.4.4: mkdir 之前 walk ancestor 验证无 symlink。
     """
     intended_root = Path.home() / ".workbuddy"
     skill_dir = intended_root / "skills" / "star-word"
+    _assert_no_symlink_in_path(skill_dir)
     skill_dir.mkdir(parents=True, exist_ok=True)
     _assert_path_within(skill_dir, intended_root)
     target = skill_dir / "SKILL.md"
@@ -415,6 +442,7 @@ def disable_workbuddy(global_scope: bool = False) -> InstallResult:
     skill_dir = intended_root / "skills" / "star-word"
     existed = skill_dir.exists()
     if existed:
+        _assert_no_symlink_in_path(skill_dir)
         _assert_path_within(skill_dir, intended_root)
         shutil.rmtree(skill_dir)
     return InstallResult(

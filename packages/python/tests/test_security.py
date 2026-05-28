@@ -197,21 +197,13 @@ def test_mcp_invalid_jsonrpc_version_rejected():
 
 
 def test_yaml_parser_rejects_deep_nesting():
-    """build.py 的 fallback YAML parser 应拒绝过深嵌套。"""
-    import importlib.util
-    repo_root = Path(__file__).resolve().parent.parent.parent.parent
-    build_path = repo_root / "scripts" / "build.py"
-    if not build_path.exists():
-        pytest.skip("scripts/build.py 不在测试环境中（pip install 后运行的环境）")
-    spec = importlib.util.spec_from_file_location("scripts_build", build_path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    # 构造 100 层嵌套
+    """packages/star_word/_yaml.py 拒绝过深嵌套（v0.4.4 起 build.py 也用此实现）。"""
+    from star_word._yaml import _yaml_parse_block
     lines = []
     for i in range(100):
         lines.append("  " * i + f"level{i}:")
     with pytest.raises(ValueError, match="嵌套过深"):
-        mod._yaml_parse_block(lines, 0, 0, depth=0)
+        _yaml_parse_block(lines, 0, 0, depth=0)
 
 
 # -------- V6: Sanitize API key from error messages --------
@@ -545,3 +537,117 @@ def test_mcp_surface_enable_does_not_raise():
     assert result.mode == "stdio-server"
     assert result.wired is False  # MCP 没持久状态
     assert "mcpServers" in result.notes  # 说明里给出 client 配置
+
+
+# ============================================================================
+# v0.4.4 Round 5 reviewer panel critical regression
+# ============================================================================
+
+
+# -------- Security V1: codebuddy/workbuddy 中间组件 symlink 真攻击 --------
+
+
+def test_codebuddy_enable_blocks_intermediate_symlink(tmp_path, monkeypatch):
+    """v0.4.4 (security R3 V1 critical): 实测 PoC 攻击。
+
+    `.codebuddy → /attacker_dir` 时 enable 必须 raise，绝不创建任何文件到 attacker。
+    Round 5 reviewer 实测在 v0.4.3 上攻击成功；v0.4.4 加 _assert_no_symlink_in_path 真修。
+    """
+    attacker = tmp_path / "attacker_ssh"
+    attacker.mkdir()
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    monkeypatch.chdir(victim)
+    (victim / ".codebuddy").symlink_to(attacker)
+    with pytest.raises(ValueError, match="symlink"):
+        installer.enable_codebuddy(global_scope=False)
+    # attacker dir 必须空
+    assert list(attacker.rglob("*")) == [], "enable 越权写入 attacker dir"
+
+
+def test_codebuddy_disable_blocks_intermediate_symlink(tmp_path, monkeypatch):
+    """`.codebuddy → /attacker_dir` 时 disable 必须 raise，绝不 rmtree attacker。"""
+    attacker = tmp_path / "attacker"
+    attacker.mkdir()
+    sentinel = attacker / "PRECIOUS_DATA.txt"
+    sentinel.write_text("DO NOT DELETE")
+    victim = tmp_path / "victim"
+    victim.mkdir()
+    monkeypatch.chdir(victim)
+    (victim / ".codebuddy").symlink_to(attacker)
+    # 模拟 victim 之前 enable 过的状态：rules/star-word/ 在 attacker dir 内
+    rule_dir = attacker / "rules" / "star-word"
+    rule_dir.mkdir(parents=True)
+    (rule_dir / "RULE.mdc").write_text("legitimate")
+    with pytest.raises(ValueError, match="symlink"):
+        installer.disable_codebuddy(global_scope=False)
+    # 哨兵必须还在
+    assert sentinel.exists(), "disable 通过 symlink 删了 attacker dir"
+    assert sentinel.read_text() == "DO NOT DELETE"
+
+
+def test_workbuddy_enable_blocks_intermediate_symlink(tmp_path, monkeypatch):
+    """workbuddy 同 codebuddy。"""
+    attacker = tmp_path / "attacker"
+    attacker.mkdir()
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setattr("pathlib.Path.home", lambda: fake_home)
+    (fake_home / ".workbuddy").symlink_to(attacker)
+    with pytest.raises(ValueError, match="symlink"):
+        installer.enable_workbuddy(global_scope=False)
+    assert list(attacker.rglob("*")) == []
+
+
+def test_assert_no_symlink_in_path_unit():
+    """单元测试：基础正确性。"""
+    import tempfile
+
+    from star_word.installer import _assert_no_symlink_in_path
+    tmp = Path(tempfile.mkdtemp())
+    safe_dir = tmp / "safe"
+    safe_dir.mkdir()
+    # 正常路径不 raise
+    _assert_no_symlink_in_path(safe_dir / "subdir" / "leaf")
+
+    # 中间组件 symlink 应 raise
+    other = tmp / "other"
+    other.mkdir()
+    sym = tmp / "sym"
+    sym.symlink_to(other)
+    with pytest.raises(ValueError, match="symlink"):
+        _assert_no_symlink_in_path(sym / "rules" / "star-word")
+
+
+# -------- Security V2: _mask_line ReDoS 完整覆盖 --------
+
+
+def test_mask_line_no_redos_balanced_link_pattern():
+    """v0.4.4 (security R3 V2): `[a](b[a](b...` 100KB 应 < 1s。
+
+    Round 4 修了 [[[...]]]，但 [a](b... 漏了。v0.4.4 验证此类 input 不退化。
+    """
+    import time
+    pathological = "[a](b" * 20000  # 100KB
+    start = time.time()
+    detectors._mask_line(pathological[:5000])  # 测 25KB 量级
+    elapsed = time.time() - start
+    assert elapsed < 1.0, f"_mask_line ReDoS: {elapsed:.2f}s on balanced [a](b pattern"
+
+
+# -------- Architect: build.py 用共享 _yaml --------
+
+
+def test_build_py_uses_shared_yaml_module():
+    """v0.4.4 (architect HIGH): scripts/build.py 必须 import star_word._yaml.parse_yaml,
+    不再维护重复 parser。"""
+    repo_root = Path(__file__).resolve().parent.parent.parent.parent
+    build_path = repo_root / "scripts" / "build.py"
+    if not build_path.exists():
+        pytest.skip("scripts/build.py 不在测试环境中")
+    text = build_path.read_text()
+    assert "from star_word._yaml import parse_yaml" in text, (
+        "build.py 必须 import _yaml 共用解析；不能再 inline 自己的 parser"
+    )
+    # 确认旧 inline parser 已删
+    assert "_yaml_parse_block" not in text, "build.py 仍有 inline _yaml_parse_block"

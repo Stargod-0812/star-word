@@ -20,12 +20,21 @@ corpus/*   →  评分 100.0/100  A 级（5 篇正向语料，strict 模式过�
 ## 60 秒安装
 
 ```bash
-pip install "git+https://github.com/Stargod-0812/star-word.git@v0.4.3#subdirectory=packages/python"
+# 推荐：venv 隔离（macOS Homebrew Python / Debian 12+ / Ubuntu 24.04 默认拒绝系统 pip install — PEP 668）
+python3 -m venv .venv && source .venv/bin/activate
+pip install "git+https://github.com/Stargod-0812/star-word.git@v0.4.4#subdirectory=packages/python"
+
+# 或用 pipx（隔离环境装 CLI 工具的标准方式）
+pipx install "git+https://github.com/Stargod-0812/star-word.git@v0.4.4#subdirectory=packages/python"
+
+# 验证
+star-word --version  # → 0.4.4
 
 # 接入 Claude Code（写到全局 CLAUDE.md）
 star-word enable claude-code --global
 
-# 审阅一份文档
+# 审阅一份文档（默认 normal 模式）
+star-word review path/to/doc.md
 star-word review path/to/doc.md --mode strict
 
 # 让 LLM 评估语义规则（需 ANTHROPIC_API_KEY）
@@ -290,7 +299,7 @@ git clone https://github.com/Stargod-0812/star-word.git
 cd star-word/packages/python
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                          # 248 个测试（v0.4.3）
+pytest                          # 273 个测试（v0.4.4）
 
 # 改规则
 cd ..

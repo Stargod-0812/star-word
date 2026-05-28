@@ -182,6 +182,12 @@ def cmd_fix(args: argparse.Namespace) -> int:
 
     from . import rewriter
     results = detectors.review(text)
+    # v0.4.4 (Round 4-5 critical 持续点名): 在 LLM 调用前先算 total_violations，让用户
+    # 知道 --max 截断了多少。之前 violations[:max] 静默丢，用户看不到。
+    total_violations = sum(
+        len(r.violations) for r in results if r.status == "violations"
+    )
+    dropped = max(0, total_violations - args.max)
     try:
         suggestions = rewriter.suggest_rewrites(
             text, results, max_violations=args.max, model=args.model,
@@ -193,6 +199,8 @@ def cmd_fix(args: argparse.Namespace) -> int:
     if args.json:
         payload = {
             "file": str(path),
+            "total_violations": total_violations,
+            "dropped": dropped,
             "suggestions": [
                 {
                     "line": s.line,
@@ -215,6 +223,9 @@ def cmd_fix(args: argparse.Namespace) -> int:
         print(f"  - {s.original}")
         print(f"  + {s.suggested}")
         print(f"    理由：{s.reason}\n")
+    if dropped > 0:
+        print(f"⚠ 还有 {dropped} 处违规未改写（受 --max {args.max} 限制）。")
+        print(f"  用 --max {total_violations} 看全部，或先改这 {len(suggestions)} 处再跑。")
     return 0
 
 
