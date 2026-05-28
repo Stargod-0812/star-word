@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import subprocess
 import sys
+from contextlib import redirect_stderr, redirect_stdout
+
+from star_word.cli import main as cli_main
 
 
 def _run(args, cwd=None, extra_env=None):
@@ -124,13 +128,6 @@ def test_cli_unknown_surface_error():
 # subprocess 跑的 _run() 不计入 coverage——cli.py 0% 是这个原因。
 # 用 main(argv) 直接调，让 coverage 看见。
 # ============================================================================
-
-
-import io
-from contextlib import redirect_stderr, redirect_stdout
-from unittest.mock import patch
-
-from star_word.cli import main as cli_main
 
 
 def _run_inproc(args):
