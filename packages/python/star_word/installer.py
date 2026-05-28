@@ -110,21 +110,35 @@ def _merge_marker_block(target_file: Path, body: str) -> bool:
 
 
 def _strip_marker_block(target_file: Path) -> bool:
+    """删除 marker 块。用 string find 而非 regex 避免 ReDoS。"""
     if not target_file.exists():
         return False
     current = target_file.read_text(encoding="utf-8")
     if MARKER_BEGIN not in current:
         return False
-    # 防 ReDoS：限制 count=1000 上限，避免对病态输入做指数级回溯
-    # 病态输入指上百个 unpaired BEGIN/END。正常文件最多一两个 marker 块。
-    updated = re.sub(
-        re.escape(MARKER_BEGIN) + r".*?" + re.escape(MARKER_END) + r"\n?",
-        "",
-        current,
-        count=1000,
-        flags=re.DOTALL,
-    )
-    updated = updated.rstrip() + "\n"
+    # 用 find 迭代查找配对 marker，O(n) 不回溯
+    out_parts = []
+    pos = 0
+    max_iter = 10000  # 安全上限
+    iters = 0
+    while iters < max_iter:
+        iters += 1
+        begin_idx = current.find(MARKER_BEGIN, pos)
+        if begin_idx < 0:
+            out_parts.append(current[pos:])
+            break
+        end_idx = current.find(MARKER_END, begin_idx + len(MARKER_BEGIN))
+        if end_idx < 0:
+            # unpaired begin: 保留剩余原样（包括这个 unpaired begin）
+            out_parts.append(current[pos:])
+            break
+        # 写入 begin 前的内容，跳过 begin..end 块（含可能的尾部 \n）
+        out_parts.append(current[pos:begin_idx])
+        next_pos = end_idx + len(MARKER_END)
+        if next_pos < len(current) and current[next_pos] == "\n":
+            next_pos += 1
+        pos = next_pos
+    updated = "".join(out_parts).rstrip() + "\n"
     if updated.strip():
         target_file.write_text(updated, encoding="utf-8")
     else:
