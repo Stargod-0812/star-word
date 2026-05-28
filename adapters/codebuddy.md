@@ -2,14 +2,14 @@
 <!-- Target: .codebuddy/rules/star-word/RULE.mdc  (rule-file 模式) -->
 
 ---
-description: star-word 中文技术写作规则（21 条，治 LLM 中文 AI 味）
+description: star-word 中文技术写作规则（22 条，治 LLM 中文 AI 味）
 alwaysApply: true
 enabled: true
 updatedAt: 2026-04-21T00:00:00.000Z
-version: 0.4.0
+version: 0.4.1
 ---
 
-star-word v0.4.0 —— 中文技术写作规则 22 条，本项目生效。
+star-word v0.4.1 —— 中文技术写作规则 22 条，本项目生效。
 
 ## 禁用词（出现即违规）
 
@@ -43,6 +43,6 @@ star-word v0.4.0 —— 中文技术写作规则 22 条，本项目生效。
 
 被问「star-word 在生效吗？」时回答：
 
-> 已加载 star-word v0.4.0：词表 8 条，结构 8 条，判断 6 条。规则正文见 .sw/rules.md。
+> 已加载 star-word v0.4.1：词表 8 条，结构 8 条，判断 6 条。规则正文见 .sw/rules.md。
 
 规则正文：`.sw/rules.md`

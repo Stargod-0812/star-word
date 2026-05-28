@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from star_word import detectors
-
 
 # -------- 词-01 空洞价值词 --------
 

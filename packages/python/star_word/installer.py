@@ -6,9 +6,6 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
-
-from . import __version__
 
 # 不与常见 lint/linter marker 重合的 namespace（刻意避开 agent-style 的 :begin/:end 模式）
 MARKER_BEGIN = "<!-- sw-managed-begin -->"
@@ -40,24 +37,52 @@ def _data_path(*parts: str) -> Path:
 
 def _resolve_target_root(global_scope: bool) -> Path:
     if global_scope:
-        root = Path.home() / ".claude"
+        home = Path.home()
+        # 防御：HOME=/ 或 HOME 为空会让 mkdir(parents=True) 试图建 / 失败
+        if home == Path("/") or str(home) == "":
+            raise ValueError(
+                "HOME 环境变量不可用或指向 /。请设置正确的 HOME 再使用 --global。"
+            )
+        root = home / ".claude"
         root.mkdir(parents=True, exist_ok=True)
         return root
     return Path.cwd()
 
 
+def _safe_copy(src: Path, dst: Path) -> None:
+    """安全复制：拒绝跟随 symlink，避免 dst 是 symlink 时改写到任意位置。
+
+    流程：
+    1. 如果 dst 是 symlink，先 unlink 它（不沿 symlink 写）
+    2. 用 shutil.copy2 写入新文件（dst 现在是 regular file 或不存在）
+    """
+    # dst.is_symlink() 不沿 symlink 解析，安全
+    if dst.is_symlink():
+        dst.unlink()
+    # parent 也校验：如果 parent 是 symlink 指向其他位置，提示用户
+    if dst.parent.is_symlink():
+        raise ValueError(
+            f"目标父目录 {dst.parent} 是 symlink，拒绝写入避免越权。"
+            "若确认安全，请手动移除 symlink。"
+        )
+    shutil.copy2(src, dst)
+
+
 def _write_shared_rules(root: Path) -> None:
-    """把 rules.md 与 adapter 写到 <root>/.sw/."""
+    """把 rules.md 与 adapter 写到 <root>/.sw/。"""
     store = root / STORE_DIR_NAME
+    if store.is_symlink():
+        # 如果 .sw/ 本身是 symlink 指向其他目录，拒绝
+        raise ValueError(
+            f"{store} 是 symlink；拒绝写入。"
+            "请删除 symlink 后再试。"
+        )
     store.mkdir(parents=True, exist_ok=True)
-    # 主规则体用小写 rules.md（避免 CAPS LOCK 视觉上与 agent-style 的 RULES.md 雷同）
-    shutil.copy2(_data_path("RULES.md"), store / "rules.md")
-    # Claude Code adapter 叫 claude.md，对外 import 路径是 @.sw/claude.md
-    shutil.copy2(_data_path("adapters", "claude-code.md"), store / "claude.md")
-    # 同时放一份 yaml source（方便离线查阅）
+    _safe_copy(_data_path("RULES.md"), store / "rules.md")
+    _safe_copy(_data_path("adapters", "claude-code.md"), store / "claude.md")
     yaml_src = DATA_DIR / "rules.yaml"
     if yaml_src.exists():
-        shutil.copy2(yaml_src, store / "rules.yaml")
+        _safe_copy(yaml_src, store / "rules.yaml")
 
 
 def _merge_marker_block(target_file: Path, body: str) -> bool:
@@ -90,10 +115,13 @@ def _strip_marker_block(target_file: Path) -> bool:
     current = target_file.read_text(encoding="utf-8")
     if MARKER_BEGIN not in current:
         return False
+    # 防 ReDoS：限制 count=1000 上限，避免对病态输入做指数级回溯
+    # 病态输入指上百个 unpaired BEGIN/END。正常文件最多一两个 marker 块。
     updated = re.sub(
         re.escape(MARKER_BEGIN) + r".*?" + re.escape(MARKER_END) + r"\n?",
         "",
         current,
+        count=1000,
         flags=re.DOTALL,
     )
     updated = updated.rstrip() + "\n"
@@ -180,7 +208,7 @@ def enable_codex(global_scope: bool = False) -> InstallResult:
     root = _resolve_target_root(global_scope)
     _write_shared_rules(root)
     prompt_path = root / STORE_DIR_NAME / "codex-system-prompt.md"
-    shutil.copy2(_data_path("adapters", "codex.md"), prompt_path)
+    _safe_copy(_data_path("adapters", "codex.md"), prompt_path)
     return InstallResult(
         surface="codex",
         mode="manual-paste",
@@ -225,7 +253,7 @@ def enable_codebuddy(global_scope: bool = False) -> InstallResult:
         rule_dir = Path.cwd() / ".codebuddy" / "rules" / "star-word"
     rule_dir.mkdir(parents=True, exist_ok=True)
     target = rule_dir / "RULE.mdc"
-    shutil.copy2(_data_path("adapters", "codebuddy.md"), target)
+    _safe_copy(_data_path("adapters", "codebuddy.md"), target)
     return InstallResult(
         surface="codebuddy",
         mode="rule-file",
@@ -264,7 +292,7 @@ def enable_workbuddy(global_scope: bool = False) -> InstallResult:
     skill_dir = Path.home() / ".workbuddy" / "skills" / "star-word"
     skill_dir.mkdir(parents=True, exist_ok=True)
     target = skill_dir / "SKILL.md"
-    shutil.copy2(_data_path("adapters", "workbuddy.md"), target)
+    _safe_copy(_data_path("adapters", "workbuddy.md"), target)
     return InstallResult(
         surface="workbuddy",
         mode="skill-file",
@@ -323,4 +351,5 @@ def list_surfaces() -> list[dict]:
         {"surface": "codex", "mode": "manual-paste", "target": f"{STORE_DIR_NAME}/codex-system-prompt.md"},
         {"surface": "codebuddy", "mode": "rule-file", "target": ".codebuddy/rules/star-word/RULE.mdc"},
         {"surface": "workbuddy", "mode": "skill-file", "target": "~/.workbuddy/skills/star-word/SKILL.md"},
+        {"surface": "mcp", "mode": "stdio-server", "target": "python -m star_word.mcp_server"},
     ]

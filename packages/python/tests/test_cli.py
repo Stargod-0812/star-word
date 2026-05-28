@@ -6,7 +6,6 @@ import json
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 
 def _run(args, cwd=None, extra_env=None):
@@ -36,7 +35,7 @@ def test_cli_surfaces_json():
     assert any(s["surface"] == "codebuddy" for s in data)
     assert any(s["surface"] == "workbuddy" for s in data)
     # 确保 mode 命名已去 agent-style 化
-    allowed_modes = {"anchor-import", "guarded-block", "manual-paste", "rule-file", "skill-file"}
+    allowed_modes = {"anchor-import", "guarded-block", "manual-paste", "rule-file", "skill-file", "stdio-server"}
     for s in data:
         assert s["mode"] in allowed_modes
 

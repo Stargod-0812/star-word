@@ -71,8 +71,10 @@ def _parse_inline_dict(s: str) -> dict:
     return result
 
 
-def _yaml_parse_block(lines: list[str], start: int, indent: int) -> tuple[Any, int]:
+def _yaml_parse_block(lines: list[str], start: int, indent: int, depth: int = 0) -> tuple[Any, int]:
     """解析一个 YAML 块，返回 (value, next_line_index)."""
+    if depth > 64:
+        raise ValueError(f"YAML 嵌套过深（>64 层）；可能是攻击或文件损坏。")
     result: dict | list | None = None
     i = start
     while i < len(lines):
@@ -99,7 +101,7 @@ def _yaml_parse_block(lines: list[str], start: int, indent: int) -> tuple[Any, i
                 if val.strip():
                     obj[key.strip()] = _yaml_scalar(val.strip())
                 elif i + 1 < len(lines):
-                    sub, next_i = _yaml_parse_block(lines, i + 1, line_indent + 2)
+                    sub, next_i = _yaml_parse_block(lines, i + 1, line_indent + 2, depth + 1)
                     if isinstance(sub, dict):
                         obj.update(sub)
                     i = next_i - 1
@@ -113,7 +115,7 @@ def _yaml_parse_block(lines: list[str], start: int, indent: int) -> tuple[Any, i
                     nindent = len(nraw) - len(nraw.lstrip())
                     if nindent == line_indent + 2 and not nraw.strip().startswith("- "):
                         # Sub-field of this list item
-                        sub, end = _yaml_parse_block(lines, next_line, line_indent + 2)
+                        sub, end = _yaml_parse_block(lines, next_line, line_indent + 2, depth + 1)
                         if isinstance(sub, dict):
                             obj.update(sub)
                         i = end - 1
@@ -135,7 +137,7 @@ def _yaml_parse_block(lines: list[str], start: int, indent: int) -> tuple[Any, i
                 result = {}
             if val == "":
                 # Block value follows
-                sub, end = _yaml_parse_block(lines, i + 1, indent + 2)
+                sub, end = _yaml_parse_block(lines, i + 1, indent + 2, depth + 1)
                 result[key] = sub  # type: ignore
                 i = end
             elif val == "|":
@@ -456,7 +458,7 @@ def gen_codebuddy_adapter(data: dict) -> str:
     out.append("<!-- Target: .codebuddy/rules/star-word/RULE.mdc  (rule-file 模式) -->")
     out.append("")
     out.append("---")
-    out.append("description: star-word 中文技术写作规则（21 条，治 LLM 中文 AI 味）")
+    out.append(f"description: star-word 中文技术写作规则（{meta['total_rules']} 条，治 LLM 中文 AI 味）")
     out.append("alwaysApply: true")
     out.append("enabled: true")
     out.append(f"updatedAt: 2026-04-21T00:00:00.000Z")
@@ -530,7 +532,7 @@ def gen_workbuddy_adapter(data: dict) -> str:
     out.append("")
     out.append("## 参考资源")
     out.append("")
-    out.append(f"- 规则全文 21 条：词-01..08 / 式-01..07 / 气-01..06")
+    out.append(f"- 规则全文 {meta['total_rules']} 条：词-01..08 / 式-01..08 / 气-01..06")
     out.append("- 项目仓库：https://github.com/Stargod-0812/star-word")
     out.append(f"- 当前版本：v{meta['version']}")
     out.append("")

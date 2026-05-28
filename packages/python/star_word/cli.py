@@ -8,8 +8,7 @@ import sys
 from pathlib import Path
 from typing import List
 
-from . import __version__
-from . import detectors, installer, scoring
+from . import __version__, detectors, installer, scoring
 
 
 def _print_human(r: installer.InstallResult) -> None:
@@ -161,7 +160,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
 
     print(f"star-word v{__version__} judge: {path}  [mode={args.mode}]")
     print("-" * 60)
-    print(f"\n语义规则评分（LLM-as-judge）：\n")
+    print("\n语义规则评分（LLM-as-judge）：\n")
     for s in judge_scores:
         print(f"  {s.rule_id}: {s.score:.1f}/10")
         if s.judge_reasoning:

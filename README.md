@@ -10,7 +10,7 @@
 4. **MCP server** — `star-word mcp` 一键接入 Claude Desktop / Cursor / Cline，把 review/judge/rewrite 变成 tool
 
 ```
-before.md  →  评分 60.4/100  D 级  机械违规 20 处
+before.md  →  评分 39.8/100  F 级  机械违规 20+ 处
 after.md   →  评分 100.0/100  A 级  零违规
 corpus/*   →  评分 100.0/100  A 级（5 篇正向语料，strict 模式过）
 ```
@@ -277,7 +277,7 @@ star-word mcp                             # 启动 MCP stdio server
 
 ## Roadmap
 
-- **v0.5**：cross-model judge（让 judge 模型必须不同于被测模型）、rewrite-then-review 闭环、Cursor / Copilot 原生 adapter、社区 bench 汇总
+- **v0.5**：cross-model judge（让 judge 模型必须不同于被测模型）、rewrite-then-review 自动循环、Cursor / Copilot 原生 adapter、社区 bench 汇总
 - **v0.6**：adaptive learning（记录用户接受/拒绝的改写，推导团队偏好）、npm 包
 - **v1.0**：从词表升级为转换图谱——给出「X 应该变成 Y」的映射关系，规则从禁止型变为引导型
 
