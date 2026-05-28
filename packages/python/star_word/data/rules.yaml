@@ -3,7 +3,7 @@
 # 直接改此文件，然后跑 scripts/build.py。
 
 meta:
-  version: "0.4.5"
+  version: "0.4.6"
   language: "zh-Hans"
   total_rules: 22
   groups:

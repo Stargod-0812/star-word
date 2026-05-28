@@ -1,51 +1,49 @@
-# star-word v0.4 effectiveness bench
+# star-word v0.4 示例对比 + adapter 负担测量
 
-回答两个问题：
-1. **AI 味是不是真的能彻底去掉？**
-2. **接入面（adapter）的负担是不是够小？**
+> ⚠ **这不是 evidence-grade bench**。
+>
+> 本页两件事：
+> 1. **示例对比**（§1）——作者手工构造的"含 AI 味原文 vs 改写示例"，用来演示规则的检测/改写覆盖面，**不是真实 LLM 输出抽样**。
+> 2. **adapter 负担测量**（§2）——adapter 在 200k 上下文中的 token 占比，可独立验证，是真数据。
+>
+> 真实 LLM × 多模型 × 多任务的 evidence-grade bench 还没跑（[methodology.md](methodology.md) 已定门槛 = 12 任务 × 2 模型 × 3 次）。计划见 [v0.5 roadmap](../README.md#roadmap)。
+>
+> **数字诚实声明**：以下分数是用 v0.4.5 detectors 实测得出，不是从老版本搬过来的。但样本本身是作者写的，存在"作者自己写一段命中规则的烂文 vs 一段不命中的好文"的循环验证嫌疑——只能证明检测器能识别作者写的样本，不能证明能识别真实 LLM 输出。
 
 ---
 
-## 1. AI 味去除效果（review/fix 前后对比）
+## 1. 示例对比（作者手工构造样本）
 
-**3 个典型 LLM 输出**（涵盖技术解释、问题排查、最佳实践三类常见场景）：
+**3 个示例段落**（涵盖技术解释、问题排查、最佳实践三类场景）：
 
-| 样本 | 主题 | LLM 原文得分 | 改写后得分 | 提升 |
-|---|---|---|---|---|
-| `sample-01-redis-migration` | Redis 集群迁移 | 58.0 / 100 | **100.0 / 100** | +42.0 |
-| `sample-02-api-timeout` | 接口超时排查 | 39.9 / 100 | **100.0 / 100** | +60.1 |
-| `sample-03-db-index` | 数据库索引优化 | 46.7 / 100 | **100.0 / 100** | +53.3 |
-| **平均** |  | **48.2** | **100.0** | **+51.8** |
+| 样本 | 主题 | 含 AI 味原文 | 改写示例 |
+|---|---|---|---|
+| `sample-01-redis-migration` | Redis 集群迁移 | 55.3 / 100 | **100.0 / 100** |
+| `sample-02-api-timeout` | 接口超时排查 | 35.7 / 100 | **100.0 / 100** |
+| `sample-03-db-index` | 数据库索引优化 | 39.2 / 100 | **100.0 / 100** |
+| **平均** |  | **43.4** | **100.0** |
 
-LLM 原文命中的 AI 味类型：
-- 词-01 空洞价值词（赋能/闭环/全面提升/顶层设计）—— **平均 4.3 处/篇**
-- 词-02 AI 过渡套话（值得注意的是/综上所述/毋庸置疑）—— **平均 5.0 处/篇**
-- 词-03 铺垫式开场（在当今/随着）—— **平均 1.3 处/篇**
-- 词-04 讨好式表达（好问题/希望对你有帮助/如有疑问请）—— **平均 1.7 处/篇**
-- 词-08 拟人化装饰（保驾护航/丝滑/稳稳接住/助力腾飞）—— **平均 2.0 处/篇**
-- 式-01 段尾总结句（综上所述...）—— 部分篇命中
-
-**结论**：22 条规则覆盖了典型 LLM 中文输出的几乎全部 AI 味类型；改写后机械+结构层 0 违规，等级 A。
+每个含 AI 味原文都触发了全部 22 条规则（每条规则一次去重计数），改写示例 0 触发。
 
 ### 复现方法
 
 ```bash
-# 跑前后对比（需 v0.4.4+）
+# 实测分数（v0.4.5+）
 for f in bench/effectiveness/sample-0{1,2,3}-*.md; do
   echo "=== $(basename $f) ==="
-  star-word review "$f" --json | jq '.score.score'
+  star-word review "$f" --mode strict --json | jq '.score.score'
 done
 ```
 
-### 数据完整性
+### 样本来源（重要）
 
-- LLM 原文：作者手工构造，模拟典型 LLM 输出风格（综合 GPT-4 / Claude / Gemini 在中文技术写作场景下的常见 tells）
-- 改写版：作者手工撰写（模拟 agent 接入 star-word 后会怎么写），未经 LLM 自动改写
-- v0.5 计划：用 `star-word fix` LLM 改写后再 review，验证「自动改写后」的分数提升
+- **含 AI 味原文**：作者手工构造，每段密集塞入"赋能/闭环/综上所述/希望对你有帮助/保驾护航"等 ban list 词汇，模拟 2023 年初 ChatGPT 3.5 时期的中文输出风格。**这不是从真实 GPT-4 / Claude 4.5 / Gemini 2.5 抽样的**——真实 frontier LLM 不会单段塞 15 个 ban 词。
+- **改写示例**：作者手工撰写，模拟"agent 接入 star-word 后会怎么写"，未经 LLM 自动改写。
+- **v0.5 计划**：用 GPT-4o / Claude Sonnet 4.5 / Gemini 2.5 Pro 各跑 5 个真实主题 × 3 次 = 45 篇真实输出，盲评 3 个评审。methodology 见 [`bench/methodology.md`](methodology.md)。
 
 ---
 
-## 2. Adapter 负担测量
+## 2. Adapter 负担测量（可独立验证）
 
 **接入 Claude Code 时的 token 开销**：
 
@@ -86,12 +84,9 @@ done
 
 ---
 
-## 3. 与「不接入 star-word」的对比
+## 3. 已知缺口
 
-**如果不装 star-word**：上面的 LLM 原文得分 39.9-58.0/100（平均 48.2），机械违规 16-17 处/篇。
-
-**装上之后两层防线**：
-- **生成时约束** — agent 看到 rule 正文，在回复时自己避开 ban list（adapter handshake 让用户能验证 rule 已加载）
-- **审阅时检测** — `star-word review` 在文档落地前打分，CI gate `--fail-under 80` 拦下 AI 味文档
-
-平均分从 **48 拉到 100**。这不是营销数字，是机械检测能验证的事实。
+- **示例样本是循环验证**。§1 的 +56.6 分提升只能说明"作者能识别自己写的样本"，不能说明"工具能识别真实 LLM 输出"。真实 evidence 见 v0.5 roadmap。
+- **judge 单厂商**。`_llm.py` 硬编码 `api.anthropic.com`，跨厂商 judge 在 v0.5。家族内换 tier（被测 sonnet → judge opus）能部分缓解 self-preference，不能完全消除。
+- **rewriter 没 fixture-based test**。当前改写质量靠 model 直觉，没"改写后必须能过 review"的强制循环。
+- **§2 的 token 估算是中英混排经验值**，不是 tokenizer 实测。真实 token 数因 prompt 内容浮动 ±15%。

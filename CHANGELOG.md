@@ -1,5 +1,24 @@
 # CHANGELOG
 
+## v0.4.6 — 2026-05-29
+
+**Doc-only 诚实化止血**。3 个干净 Opus subagent 独立评估（staff engineer + dogfood ×2 + security/architect）一致指出 README/bench 的可信度短板：(1) README 整段重复，(2) hero 数字 48.2 是错的，实测 43.4，(3) bench 是循环验证（作者写 ban 词文本测自己 detector）却把"这不是营销数字"印在 README。本版本只动文档，零代码改动、零回归风险。
+
+### Doc 改动
+
+- **README.md**：删 L40-62 整段重复（"vs 其他工具" 表 + bench 块 + niche 段各砍 1 份）；hero 平均分 48.2 → **实测 43.4**；删"16-17 处 AI 味"伪精准（实际每篇 22 条规则全命中、每条 1 处去重计数）；分数下方加 `⚠ 作者手工构造的演示对比，不是真实 LLM 输出抽样` 警告；vs 表语义层加"仅 Anthropic 家族，跨厂商 v0.5"限定；v0.4.4 → v0.4.5 全部纠正（install URL、--version 输出、judge 段落、测试数）
+- **bench/effectiveness.md**：标题 `effectiveness bench` → `示例对比 + adapter 负担测量`（撤掉"bench"误导）；顶部 prominent disclaimer 直接声明"这不是 evidence-grade bench"；3 个样本分数全部按 v0.4.5 detectors 实测改（55.3 / 35.7 / 39.2 / 平均 43.4）；删 L97 反讽句"这不是营销数字，是机械检测能验证的事实"；新增"§3 已知缺口"明列循环验证 + judge 单厂商 + rewriter 无 fixture + token 估算 ±15%
+
+### 没改的（留给 v0.5）
+
+- **真实 LLM × 多模型 bench**：methodology.md 已定门槛（12 任务 × 2 模型 × 3 次），需要跑真实 GPT-4o / Claude Sonnet 4.5 / Gemini 2.5 Pro 输出而非作者手工构造样本——这是 v0.5 的 headline goal
+- **Cross-model judge**：`_llm.py` 仍硬编码 `api.anthropic.com`，本版本只在 README/bench 里把限制写明，不改实现
+- **R1 早 mkdir 绕过 `_secure_mkdir`（installer.py:48）**：security/architect 抓到的小 surface（attacker_dir 留空目录污染但写不了数据），v0.4.6 doc-only 范围之外，下版本修
+- **R2 `JUDGE_RUBRIC` 硬编码 vs yaml 漂移（judge.py:27-77）**：SSoT 80%，v0.5 重构 provider 抽象层时一并迁移
+- **R3 `_strip_marker_block` marker 误删用户内容**：需要 nonce / state.json schema，v0.5 marker v2 设计
+
+---
+
 ## v0.4.5 — 2026-05-28
 
 **焦点转向产品本质效果**：reviewer panel 的 6 轮迭代把代码质量推到 ~70/100，但用户
