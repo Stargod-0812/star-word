@@ -116,3 +116,170 @@ def test_cli_unknown_surface_error():
     r = _run(["enable", "no-such-surface"])
     assert r.returncode == 2
     assert "未知接入面" in r.stderr
+
+
+# ============================================================================
+# v0.4.2: In-process CLI tests (覆盖 cli.py，不靠 subprocess)
+#
+# subprocess 跑的 _run() 不计入 coverage——cli.py 0% 是这个原因。
+# 用 main(argv) 直接调，让 coverage 看见。
+# ============================================================================
+
+
+import io
+from contextlib import redirect_stderr, redirect_stdout
+from unittest.mock import patch
+
+from star_word.cli import main as cli_main
+
+
+def _run_inproc(args):
+    """直接调 main(argv) 而不 subprocess，让 coverage 计入。"""
+    out = io.StringIO()
+    err = io.StringIO()
+    try:
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = cli_main(args)
+    except SystemExit as e:
+        rc = e.code or 0
+    return rc, out.getvalue(), err.getvalue()
+
+
+def test_cli_inproc_surfaces():
+    rc, out, _ = _run_inproc(["surfaces"])
+    assert rc == 0
+    assert "claude-code" in out
+    assert "stdio-server" in out  # mcp 接入面
+
+
+def test_cli_inproc_handshake():
+    rc, out, _ = _run_inproc(["handshake"])
+    assert rc == 0
+    assert "已加载" in out
+
+
+def test_cli_inproc_review_clean(tmp_path):
+    f = tmp_path / "clean.md"
+    f.write_text("订单服务延迟 3ms，用 Redis 做缓存。\n" * 3, encoding="utf-8")
+    rc, _, _ = _run_inproc(["review", str(f)])
+    assert rc == 0
+
+
+def test_cli_inproc_review_dirty_text_format(tmp_path):
+    f = tmp_path / "dirty.md"
+    f.write_text("综上所述，这是赋能业务的抓手。\n" * 3, encoding="utf-8")
+    rc, out, _ = _run_inproc(["review", str(f)])
+    assert rc == 1
+    assert "词-01" in out or "词-02" in out
+
+
+def test_cli_inproc_review_json(tmp_path):
+    f = tmp_path / "dirty.md"
+    f.write_text("综上所述，这是抓手。\n" * 3, encoding="utf-8")
+    rc, out, _ = _run_inproc(["review", str(f), "--json"])
+    assert rc == 1
+    import json as _json
+    data = _json.loads(out)
+    assert "score" in data
+    assert "results" in data
+
+
+def test_cli_inproc_review_audit_only(tmp_path):
+    f = tmp_path / "dirty.md"
+    f.write_text("综上所述，这是抓手。\n" * 3, encoding="utf-8")
+    rc, out, _ = _run_inproc(["review", str(f), "--audit-only"])
+    assert rc == 1
+    import json as _json
+    _json.loads(out)  # audit-only 必输 JSON
+
+
+def test_cli_inproc_review_fail_under(tmp_path):
+    """--fail-under 触发非零退出码即使无违规（仅当分数低于阈值）。"""
+    f = tmp_path / "dirty.md"
+    f.write_text("综上所述，这是赋能。" * 30, encoding="utf-8")
+    rc, _, _ = _run_inproc(["review", str(f), "--fail-under", "99"])
+    assert rc == 1
+
+
+def test_cli_inproc_review_modes(tmp_path):
+    """三个 mode 都不 crash（rc 0 或 1 都行，关键是不 raise）。"""
+    f = tmp_path / "doc.md"
+    f.write_text("订单服务延迟 3ms。\n" * 5, encoding="utf-8")
+    for mode in ["strict", "normal", "relaxed"]:
+        rc, _, _ = _run_inproc(["review", str(f), "--mode", mode])
+        assert rc in (0, 1), f"mode={mode} 异常退出码 {rc}"
+
+
+def test_cli_inproc_review_missing_file():
+    rc, _, err = _run_inproc(["review", "/nonexistent/file.md"])
+    assert rc == 2
+    assert "不存在" in err
+
+
+def test_cli_inproc_review_invalid_utf8(tmp_path):
+    f = tmp_path / "bad.md"
+    f.write_bytes(b"\xff\xfe\xfd")
+    rc, _, err = _run_inproc(["review", str(f)])
+    assert rc == 2
+    assert "UTF-8" in err or "decode" in err.lower()
+
+
+def test_cli_inproc_enable_disable(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    rc, out, _ = _run_inproc(["enable", "claude-code"])
+    assert rc == 0
+    assert (tmp_path / "CLAUDE.md").exists()
+    rc, _, _ = _run_inproc(["disable", "claude-code"])
+    assert rc == 0
+
+
+def test_cli_inproc_enable_unknown():
+    rc, _, err = _run_inproc(["enable", "no-such"])
+    assert rc == 2
+    assert "未知接入面" in err
+
+
+def test_cli_inproc_enable_json(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    rc, out, _ = _run_inproc(["enable", "claude-code", "--json"])
+    assert rc == 0
+    import json as _json
+    data = _json.loads(out)
+    assert data["surface"] == "claude-code"
+    assert data["wired"] is True
+
+
+def test_cli_inproc_judge_no_api_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    f = tmp_path / "doc.md"
+    f.write_text("订单服务延迟。" * 10, encoding="utf-8")
+    rc, _, err = _run_inproc(["judge", str(f)])
+    assert rc == 2
+    assert "API key" in err or "ANTHROPIC_API_KEY" in err
+
+
+def test_cli_inproc_judge_missing_file():
+    rc, _, err = _run_inproc(["judge", "/nonexistent.md"])
+    assert rc == 2
+    assert "不存在" in err
+
+
+def test_cli_inproc_fix_missing_file():
+    rc, _, err = _run_inproc(["fix", "/nonexistent.md"])
+    assert rc == 2
+    assert "不存在" in err
+
+
+def test_cli_inproc_fix_no_api_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    f = tmp_path / "doc.md"
+    f.write_text("综上所述，这是赋能业务的抓手。" * 5, encoding="utf-8")
+    rc, _, err = _run_inproc(["fix", str(f)])
+    assert rc == 2
+    assert "API key" in err or "ANTHROPIC_API_KEY" in err
+
+
+def test_cli_inproc_disable_unknown():
+    rc, _, err = _run_inproc(["disable", "no-such"])
+    assert rc == 2
+    assert "未知接入面" in err

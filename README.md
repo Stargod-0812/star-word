@@ -5,7 +5,7 @@
 四件事：
 
 1. **生成时约束** — 规则注入 agent 系统提示，让 Claude / GPT / Gemini 起草时就避开 AI 味
-2. **审阅时检测** — `star-word review` 给文档打 0-100 分，11 条机械/结构规则零 API 成本
+2. **审阅时检测** — `star-word review` 给文档打 0-100 分，12 条机械/结构规则零 API 成本
 3. **LLM-as-judge** — `star-word judge` 让模型评 10 条语义规则（气组 + 部分式组），返回 0-10 分 + reasoning
 4. **MCP server** — `star-word mcp` 一键接入 Claude Desktop / Cursor / Cline，把 review/judge/rewrite 变成 tool
 
@@ -20,7 +20,7 @@ corpus/*   →  评分 100.0/100  A 级（5 篇正向语料，strict 模式过�
 ## 60 秒安装
 
 ```bash
-pip install "git+https://github.com/Stargod-0812/star-word.git@v0.4.0#subdirectory=packages/python"
+pip install "git+https://github.com/Stargod-0812/star-word.git@v0.4.2#subdirectory=packages/python"
 
 # 接入 Claude Code（写到全局 CLAUDE.md）
 star-word enable claude-code --global
@@ -48,8 +48,8 @@ star-word v0.4 的三层防线：
 | 层 | 机制 | 覆盖 |
 | --- | --- | --- |
 | **生成时**（adapter 注入） | 词表 + 6 条 forcing function 自检 | 所有 22 条规则 |
-| **审阅时机械层** | 11 条规则的子串/正则/统计检测 | 词组 7 + 式组 4 |
-| **审阅时语义层** | LLM-as-judge 打 0-10 分 | 气组 6 + 式组 3 + 词-05 |
+| **审阅时机械层** | 12 条规则的子串/正则/统计检测 | 词组 7 + 式组 5 |
+| **审阅时语义层** | LLM-as-judge 打 0-10 分 | 气组 6 + 式组 3 + 词-05 = 10 条 |
 
 不依赖 LLM 也能跑机械层；想要语义评分给个 API key 就行。
 
@@ -107,7 +107,7 @@ $ star-word review docs/RFC.md --mode strict
 ...
 文档分: 87.3/100  等级: B  (字数 1240)
 机械 + 结构规则违规总数: 4
-  · 4 条语义规则未评估（需 LLM-as-judge）
+  · 10 条语义规则未评估（需 LLM-as-judge）
 ```
 
 三种 mode（`strict` / `normal` / `relaxed`）调权重不调阈值——避免「主动调宽就 10 分」的误导。
@@ -141,7 +141,7 @@ $ ANTHROPIC_API_KEY=sk-... star-word judge docs/RFC.md
 文档分: 84.2/100  等级: B
 ```
 
-判 judge 用什么模型不重要——重要的是**严禁让被测模型 judge 自己**（self-preference）。详见 [`bench/methodology.md`](bench/methodology.md)。
+判 judge 用什么模型不重要——重要的是**严禁让被测模型 judge 自己**（self-preference）。当前 v0.4.2 默认 judge 用 `claude-sonnet-4-5`；若你的被测模型也是 Claude 家族，必须改用别家（GPT-4o / Gemini-2.5-Pro / DeepSeek-V3）做 judge。配置：`star-word judge --model <model-id>`。详见 [`bench/methodology.md`](bench/methodology.md)。
 
 ### 4. MCP server（一键接入 Claude Desktop / Cursor）
 
@@ -268,7 +268,7 @@ star-word mcp                             # 启动 MCP stdio server
 诚实说明 v0.4 还有的差距：
 
 - **bench 不达最低门槛**。v0.2 那份 4 任务 × 1 次的数据被 v0.4 retired，新 bench 还没跑（[methodology](bench/methodology.md) 已定，欢迎社区贡献）。
-- **judge 有 self-preference 风险**。当前默认 judge 用 Claude，被测如果也是 Claude，分数偏高。下一步加 cross-model judge 配置。
+- **judge 有 self-preference 风险**。当前默认 judge 用 Claude，被测如果也是 Claude，分数偏高。**缓解措施**：v0.4.2 已支持 `--model` 切判模——把被测模型与 judge 模型显式分开（GPT 判 Claude / Claude 判 GPT），即可避开 self-preference。下一步把 cross-model assert 内置到 CI gate。
 - **只支持简体中文**。架构里有 language 字段，但还没实现非中文规则。
 - **rewriter 没做 fixture-based test**。当前 rewrite 质量靠 model 直觉，没有「改写后能过 review」的强制循环。
 - **MCP server 实现的是 spec 子集**。够用 Claude Desktop / Cursor，复杂场景（resources / prompts）没实现。
@@ -315,7 +315,7 @@ star-word/
 └── packages/python/star_word/
     ├── cli.py                   # 6 个子命令
     ├── installer.py             # enable / disable
-    ├── detectors.py             # 11 条机械/结构检测
+    ├── detectors.py             # 12 条机械/结构检测
     ├── scoring.py               # 0-100 评分（v0.4 新）
     ├── judge.py                 # LLM-as-judge（v0.4 新）
     ├── rewriter.py              # 改写建议（v0.4 新）

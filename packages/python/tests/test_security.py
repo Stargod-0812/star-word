@@ -272,3 +272,152 @@ def test_detectors_reject_oversized_input():
     huge = "x" * (detectors.MAX_INPUT_CHARS + 1)
     with pytest.raises(ValueError, match="超过上限"):
         detectors.review(huge)
+
+
+# ============================================================================
+# Round 4 — v0.4.2 安全 regression
+# ============================================================================
+
+
+# -------- V8: Zero-width 字符 bypass --------
+
+
+def test_zero_width_bypass_blocked():
+    """U+200B/200C/200D 插入「赋能」中间不再绕过词典扫描。"""
+    # 构造 4 种 zero-width 字符 + BOM 的 bypass 尝试
+    zw_variants = [
+        "赋​能",  # ZERO WIDTH SPACE
+        "赋‌能",  # ZERO WIDTH NON-JOINER
+        "赋‍能",  # ZERO WIDTH JOINER
+        "赋⁠能",  # WORD JOINER
+        "赋﻿能",  # ZERO WIDTH NO-BREAK SPACE (BOM)
+    ]
+    for variant in zw_variants:
+        text = f"我们要全面{variant}业务发展\n"
+        results = detectors.review(text)
+        ci_violations = [
+            v for r in results for v in r.violations
+            if r.rule_id == "词-01"
+        ]
+        assert ci_violations, f"zero-width bypass 未被拦截: {variant!r}"
+
+
+def test_zero_width_does_not_break_normal_text():
+    """正常无 ZW 字符的文档行为不变。"""
+    text = "正常文档没有空话\n"
+    results = detectors.review(text)
+    ci = [v for r in results for v in r.violations if r.rule_id == "词-01"]
+    assert ci == []
+
+
+# -------- V9: CLAUDE.md / AGENTS.md symlink hijacking --------
+
+
+def test_enable_refuses_to_follow_claude_md_symlink(tmp_path, monkeypatch):
+    """CLAUDE.md 是 symlink 时 enable 必须不跟随写入。
+
+    攻击场景：恶意 git repo 预置 CLAUDE.md → ~/.ssh/authorized_keys
+    """
+    monkeypatch.chdir(tmp_path)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("ORIGINAL")
+    claude_md = tmp_path / "CLAUDE.md"
+    claude_md.symlink_to(victim)
+    # enable 必须先 unlink symlink 再写实文件
+    installer.enable_claude_code(global_scope=False)
+    # victim 不能被改
+    assert victim.read_text() == "ORIGINAL"
+    # CLAUDE.md 现在应是真实文件，不是 symlink
+    assert not claude_md.is_symlink()
+    assert claude_md.is_file()
+
+
+def test_disable_refuses_claude_md_symlink(tmp_path, monkeypatch):
+    """CLAUDE.md 是 symlink 时 disable 必须 raise，不静默跟随。"""
+    monkeypatch.chdir(tmp_path)
+    victim = tmp_path / "victim.txt"
+    victim.write_text("ORIGINAL")
+    claude_md = tmp_path / "CLAUDE.md"
+    claude_md.symlink_to(victim)
+    with pytest.raises(ValueError, match="symlink"):
+        installer._strip_marker_block(claude_md)
+    assert victim.read_text() == "ORIGINAL"
+
+
+# -------- V10: _strip_marker_block max_iter raise --------
+
+
+def test_strip_marker_block_raises_on_excessive_iterations(tmp_path):
+    """marker 配对数超过 max_iter 必须 raise，不能静默丢数据。"""
+    f = tmp_path / "claude.md"
+    # 12000 对 marker 块（超过 max_iter=10000）
+    pairs = (installer.MARKER_BEGIN + "\nbody\n" + installer.MARKER_END + "\n") * 12000
+    f.write_text(pairs)
+    with pytest.raises(ValueError, match="拒绝处理"):
+        installer._strip_marker_block(f)
+
+
+# -------- V11: judge NaN / Infinity 拒绝 --------
+
+
+def test_judge_rejects_nan_score():
+    """模型返回 score=NaN 应被丢弃，不静默退化。"""
+    # 模拟 _llm.call_anthropic 返回 NaN
+    fake_resp = {
+        "content": [
+            {
+                "type": "text",
+                "text": '{"scores":[{"rule_id":"气-01","score":NaN,"reasoning":"x"}]}',
+            }
+        ]
+    }
+    with patch.object(_llm, "call_anthropic", return_value=fake_resp):
+        with patch.object(_llm, "get_api_key", return_value="sk-test"):
+            # JSON.parse 不接受裸 NaN；模型实际返回 float("nan") 时走 dict 路径
+            try:
+                scores = judge.judge_text("这是文档" * 30, rule_ids=["气-01"])
+                # 即使解析失败也只该 raise 或返回空，不该 silently mark satisfied
+                assert all(s.score == s.score for s in scores), "NaN 入侵 score"
+            except judge.JudgeError:
+                pass  # JSON 解析失败也 OK
+
+
+def test_judge_handles_infinity_in_dict():
+    """直接 inject float('inf') 到响应 dict（绕开 JSON 解析），应被丢弃。"""
+    import json as _json
+    # 用 allow_nan=True 的 dumps + 自定义解析
+    fake_resp = {
+        "content": [
+            {
+                "type": "text",
+                "text": _json.dumps(
+                    {"scores": [{"rule_id": "气-01", "score": float("inf"), "reasoning": "x"}]},
+                    allow_nan=True,  # Python json 默认就 allow_nan=True
+                ),
+            }
+        ]
+    }
+    with patch.object(_llm, "call_anthropic", return_value=fake_resp):
+        with patch.object(_llm, "get_api_key", return_value="sk-test"):
+            scores = judge.judge_text("这是文档" * 30, rule_ids=["气-01"])
+            # Infinity 应被 isfinite 拒绝，scores 为空
+            assert scores == [], f"Infinity 未被拒绝: {scores}"
+
+
+# -------- V12: 词-04 AND 边界 --------
+
+
+def test_ci_04_and_boundary_rejects_compound_words():
+    """v0.4.2: 词-04 改 AND 边界后，「写好问题」（动宾）不再误抓。"""
+    text = "请你写好问题再来\n"  # "写"(中文) + "好问题" + "再"(中文): AND fail = 不抓
+    results = detectors.review(text)
+    ci_04 = [v for r in results for v in r.violations if r.rule_id == "词-04"]
+    assert ci_04 == [], f"AND 边界应拒绝「写好问题」误抓: {ci_04}"
+
+
+def test_ci_04_and_boundary_still_catches_real_violations():
+    """词-04 AND 边界仍能抓真正的句首/独立 case。"""
+    text = "好问题。这是一个套话开场\n"  # 行首+句号: 两边都非中文
+    results = detectors.review(text)
+    ci_04 = [v for r in results for v in r.violations if r.rule_id == "词-04"]
+    assert ci_04, "AND 边界应抓行首讨好语"

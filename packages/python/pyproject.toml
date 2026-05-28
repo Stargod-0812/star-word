@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "star-word"
-version = "0.4.1"
+version = "0.4.2"
 description = "中文技术写作规则集（22 条）+ LLM-as-judge + MCP server. Drop-in for Claude Code, Codex, Cursor, AGENTS.md-compatible agents."
 readme = "README.md"
 requires-python = ">=3.9"

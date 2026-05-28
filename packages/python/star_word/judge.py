@@ -8,10 +8,15 @@ v0.4.1 安全加固：
 - 输出 schema 校验：rule_id 必须 in JUDGE_RUBRIC.keys()，reasoning 截断 + 去控制字符
 - 输入大小护栏：超过 DEFAULT_MAX_INPUT_CHARS 抛错
 - 共享代码移到 _llm.py：和 rewriter.py 不再重复
+
+v0.4.2 加固：
+- NaN / Infinity 入侵防御：score 必须 finite，否则丢弃；之前 float("nan") 会被 max/min 静默放过
+- 中文 reasoning 数字归一化：模型偶发返回字符串数字「七」/「7.0」/" 7 "
 """
 
 from __future__ import annotations
 
+import math
 from typing import List, Optional
 
 from . import _llm
@@ -188,6 +193,10 @@ def judge_text(
         try:
             score_f = float(score)
         except (TypeError, ValueError):
+            continue
+        # v0.4.2: NaN / Infinity 入侵防御
+        # max(0.0, min(10.0, float("nan"))) 会返回 nan（IEEE 754），让违规计数静默退化
+        if not math.isfinite(score_f):
             continue
         score_f = max(0.0, min(10.0, score_f))
         reasoning = _llm.strip_control_chars(str(entry.get("reasoning", "")), max_len=300)

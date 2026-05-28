@@ -145,7 +145,7 @@ def cmd_judge(args: argparse.Namespace) -> int:
     from . import judge
     rule_ids = args.rules.split(",") if args.rules else None
     try:
-        judge_scores = judge.judge_text(text, rule_ids=rule_ids)
+        judge_scores = judge.judge_text(text, rule_ids=rule_ids, model=args.model)
     except judge.JudgeError as e:
         print(f"错误: {e}", file=sys.stderr)
         return 2
@@ -180,7 +180,9 @@ def cmd_fix(args: argparse.Namespace) -> int:
     from . import rewriter
     results = detectors.review(text)
     try:
-        suggestions = rewriter.suggest_rewrites(text, results, max_violations=args.max)
+        suggestions = rewriter.suggest_rewrites(
+            text, results, max_violations=args.max, model=args.model,
+        )
     except rewriter.RewriteError as e:
         print(f"错误: {e}", file=sys.stderr)
         return 2
@@ -264,12 +266,16 @@ def build_parser() -> argparse.ArgumentParser:
     pj.add_argument("file")
     pj.add_argument("--rules", help="只评估指定规则（逗号分隔，如 '气-01,气-02'）")
     pj.add_argument("--mode", choices=["strict", "normal", "relaxed"], default="normal")
+    pj.add_argument("--model", default=None,
+                    help="指定 judge 模型（默认 claude-sonnet-4-5；为避 self-preference，"
+                         "判 Claude 家族产物时建议指定别家如 'claude-opus-4-5' 或自带的 GPT/Gemini）")
     pj.add_argument("--json", action="store_true")
     pj.set_defaults(func=cmd_judge)
 
     pf = sub.add_parser("fix", help="对违规处生成改写建议（需 ANTHROPIC_API_KEY）")
     pf.add_argument("file")
     pf.add_argument("--max", type=int, default=20, help="最多改写多少处（默认 20）")
+    pf.add_argument("--model", default=None, help="指定改写模型")
     pf.add_argument("--json", action="store_true")
     pf.set_defaults(func=cmd_fix)
 

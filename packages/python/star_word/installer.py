@@ -86,7 +86,20 @@ def _write_shared_rules(root: Path) -> None:
 
 
 def _merge_marker_block(target_file: Path, body: str) -> bool:
-    """幂等写入 marker 块。返回 True 表示有改动。"""
+    """幂等写入 marker 块。返回 True 表示有改动。
+
+    v0.4.2 安全加固：拒绝跟随 symlink。如果 target_file 是 symlink（哪怕指向合法位置），
+    一律 unlink 后重建。这防御 CLAUDE.md / AGENTS.md 被预先创建为 symlink 指向
+    /etc/passwd 之类的攻击。
+    """
+    if target_file.is_symlink():
+        # 不跟随 symlink，直接 unlink；下方走「文件不存在」分支重建
+        target_file.unlink()
+    if target_file.parent.is_symlink():
+        raise ValueError(
+            f"目标父目录 {target_file.parent} 是 symlink，拒绝写入避免越权。"
+            "若确认安全，请手动移除 symlink。"
+        )
     block = f"{MARKER_BEGIN}\n{body.rstrip()}\n{MARKER_END}\n"
     if target_file.exists():
         current = target_file.read_text(encoding="utf-8")
@@ -110,14 +123,23 @@ def _merge_marker_block(target_file: Path, body: str) -> bool:
 
 
 def _strip_marker_block(target_file: Path) -> bool:
-    """删除 marker 块。用 string find 而非 regex 避免 ReDoS。"""
+    """删除 marker 块。用 string find 而非 regex 避免 ReDoS。
+
+    v0.4.2 修复：达到 max_iter 上限时 raise 而非静默截断。
+    之前 max_iter 上限会让大文件后半段被默默丢掉，用户毫无察觉。
+    """
     if not target_file.exists():
         return False
+    if target_file.is_symlink():
+        # symlink target 不应该被我们处理；跟随会写到任意位置
+        raise ValueError(
+            f"{target_file} 是 symlink，拒绝处理。请手动检查 symlink target。"
+        )
     current = target_file.read_text(encoding="utf-8")
     if MARKER_BEGIN not in current:
         return False
     # 用 find 迭代查找配对 marker，O(n) 不回溯
-    out_parts = []
+    out_parts: list[str] = []
     pos = 0
     max_iter = 10000  # 安全上限
     iters = 0
@@ -138,6 +160,12 @@ def _strip_marker_block(target_file: Path) -> bool:
         if next_pos < len(current) and current[next_pos] == "\n":
             next_pos += 1
         pos = next_pos
+    else:
+        # 触发 max_iter — 文件里有上万对 marker，不正常
+        raise ValueError(
+            f"{target_file} 中 marker 配对数超过 {max_iter}；拒绝处理避免静默丢数据。"
+            "请手动清理后再试。"
+        )
     updated = "".join(out_parts).rstrip() + "\n"
     if updated.strip():
         target_file.write_text(updated, encoding="utf-8")

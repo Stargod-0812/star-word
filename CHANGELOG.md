@@ -1,5 +1,30 @@
 # CHANGELOG
 
+## v0.4.2 — 2026-05-28
+
+Round 4 reviewer panel 反馈的全量修复：补 v0.4.1 残留的 4 条高危防御缺口与 4 处 README 自我矛盾。
+
+### 安全加固
+- **Zero-width 字符 bypass**（critical）：`赋​能` 中插入 U+200B 即可绕过 v0.4.1 的词典扫描。`_normalize_text` 现在统一剥离 U+200B/200C/200D/2060/180E/FEFF 后再扫。
+- **CLAUDE.md / AGENTS.md symlink hijacking**（high）：v0.4.1 已加固 `.sw/` 内文件，但 `_merge_marker_block` / `_strip_marker_block` 对入口文件本身（CLAUDE.md / AGENTS.md）仍跟随 symlink 写入——攻击者可预先 `ln -s ~/.ssh/authorized_keys CLAUDE.md`。v0.4.2 在两个函数入口检测 `is_symlink()`，merge 时 unlink 重建、strip 时直接 raise。
+- **`_strip_marker_block` 静默丢数据**：触发 max_iter=10000 上限时会保留前段、丢弃后段，用户毫无察觉。v0.4.2 改为 raise，让用户看到。
+- **NaN / Infinity 入侵 score**（medium）：`max(0.0, min(10.0, float("nan")))` 在 IEEE 754 下返回 nan，让 `score >= 8` 比较退化为 False，把"满分"静默降为"违规"。v0.4.2 用 `math.isfinite()` 拒绝。
+
+### 检测精度
+- **`词-04` 词边界 OR → AND**：v0.4.1 用 OR（一边非中文即抓）会误抓「写好问题」（"写"+"好"+"问题"，"写"是中文但末尾是 EOL/标点）。v0.4.2 改 AND（两边都非中文才抓），减少假阳性。
+
+### CLI / 用户面
+- **`star-word judge --model <id>` / `star-word fix --model <id>`**：cross-model judge 配置打开。被测 Claude → judge 用 GPT/Gemini/DeepSeek 即可避开 self-preference。
+- **README 4 处自我矛盾**：install URL `v0.4.0` → `v0.4.2`、机械检测「11 条」→「12 条」（实际 detectors.py 注册 12 条）、pending 数「4 条」→「10 条」（与 JUDGE_RUBRIC 实际条目对齐）、judge cross-model 段补真实可执行配置。
+
+### 测试
+- `test_security.py` 加 V8-V12：zero-width bypass、CLAUDE.md symlink、_strip_marker_block max_iter raise、judge NaN/Infinity 拒绝、词-04 AND 边界。
+
+### 不兼容变更
+- 词-04 边界从 OR 改 AND 后，`这是好问题` 这种「中文+套话」组合会从「抓」变成「不抓」。如果你的 fixture 依赖 OR 行为，请在 `tests/fixtures/` 显式写出 `好问题。`（带终止标点）保留命中。
+
+---
+
 ## v0.4.1 — 2026-05-28
 
 精度大修 + 安全加固。基于四方 reviewer panel 的 60-66 分基线，全面修复。

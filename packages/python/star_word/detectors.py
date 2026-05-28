@@ -300,10 +300,22 @@ def _mask_line(line: str) -> str:
     return out
 
 
+_ZERO_WIDTH_PATTERN = re.compile(
+    r"[​‌‍⁠᠎﻿]"
+)
+
+
 def _normalize_text(text: str) -> str:
-    """标准化换行符，剥 BOM。"""
+    """标准化换行符，剥 BOM，去 zero-width 字符。
+
+    v0.4.2: zero-width 字符（U+200B/200C/200D/2060/180E/FEFF）会绕过词典扫描——
+    `赋​能` 在视觉上等价于「赋能」但 .find('赋能') 找不到。
+    在最早归一化阶段全部剥掉，让后续规则只看到「真实」字符。
+    BOM (FEFF) 也包含在内：在文档中间出现的 BOM 是攻击向量，不是合法编码标记。
+    """
     if text.startswith("﻿"):
         text = text[1:]
+    text = _ZERO_WIDTH_PATTERN.sub("", text)
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
@@ -364,11 +376,13 @@ def _scan_banned(
                 if col < 0:
                     break
                 if word_boundary:
-                    # 前后字符不能是中文（中文里"好问题"做后缀有合法用法）
+                    # 词边界严格检查（v0.4.2 改 OR → AND）：
+                    # OR 在「写好问题」这种动宾组合上误抓（写=中文，问题后=EOL=非中文，OR 通过）
+                    # AND 要求前后都不是中文，「好问题。」（前是「，」/EOL/标点，后是「。」）才抓
+                    # 边缘 case：「这是好问题」前是「是」（中文）→ AND 漏抓——但 review 提示用户改写即可
                     before_ok = not _is_chinese_neighbor(masked, col - 1)
                     after_ok = not _is_chinese_neighbor(masked, col + len(w))
-                    if not (before_ok or after_ok):
-                        # 必须至少一边是边界（句首句尾或非中文符号）
+                    if not (before_ok and after_ok):
                         start = col + len(w)
                         continue
                 out.append(Violation(
