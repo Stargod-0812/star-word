@@ -1,110 +1,210 @@
 # star-word
 
-**22 条中文技术写作规则，治 LLM 中文输出的 AI 味。**
+**22 条中文技术写作规则 + LLM-as-judge + MCP server。治 LLM 中文输出的 AI 味，量化打分到 0-100。**
 
-把规则注入到 Claude Code / Codex / 任何支持 `AGENTS.md` 的 agent，大幅减少「稳稳接住」、「赋能闭环」、「综上所述」、「希望对你有帮助」这类套话，同时通过 forcing function 把语感规则从被动标准变成主动自检。
+四件事：
+
+1. **生成时约束** — 规则注入 agent 系统提示，让 Claude / GPT / Gemini 起草时就避开 AI 味
+2. **审阅时检测** — `star-word review` 给文档打 0-100 分，11 条机械/结构规则零 API 成本
+3. **LLM-as-judge** — `star-word judge` 让模型评 10 条语义规则（气组 + 部分式组），返回 0-10 分 + reasoning
+4. **MCP server** — `star-word mcp` 一键接入 Claude Desktop / Cursor / Cline，把 review/judge/rewrite 变成 tool
 
 ```
-before.md  →  机械规则违规 20 处（AI 味满格）
-after.md   →  机械规则违规 0  处
+before.md  →  评分 60.4/100  D 级  机械违规 20 处
+after.md   →  评分 100.0/100  A 级  零违规
+corpus/*   →  评分 100.0/100  A 级（5 篇正向语料，strict 模式过）
 ```
 
 ---
 
-## 架构一图
-
-```
-rules.yaml                          （唯一来源）
-    │
-    ▼ scripts/build.py
-    │
-    ├─► RULES.md                    （规则全文，22 条）
-    ├─► adapters/claude-code.md     （Claude Code 接入口）
-    ├─► adapters/AGENTS.md          （AGENTS.md 兼容）
-    ├─► adapters/codex.md           （Codex API 系统提示）
-    └─► packages/python/star_word/data/*  （pip 包内分发镜像）
-```
-
-改规则只需改 `rules.yaml`，跑一次 `scripts/build.py` 全部产物自动重生成；CI 用 `scripts/build.py --check` 拒绝漂移。
-
----
-
-## 为什么做这个
-
-LLM 写中文技术文字有一套可识别的 tell pattern：
-
-LLM 写中文技术文字有一套可识别的 tell pattern：空洞套话（赋能/闭环/全面提升）、AI 过渡词（值得注意的是/综上所述）、讨好式开场收尾（好问题/希望对你有帮助）、铺垫第一句（在当今/随着）、拟人装饰（稳稳接住/保驾护航/丝滑）、无意义缓冲（可能/某种程度上）、段尾复述。这些词句在预训练语料里高频，模型本能复用。技术读者看到就翻白眼。
-
-但词表只是表层。真正区分人写和 AI 写的是信息选择、节奏变化、具体性、判断力。v0.3 的核心改进：把语感规则从被动"判断标准"变成主动 forcing function——模型每生成一段中文，必须过 6 条自检，不过就重写。
-
-star-word 做两件事：
-
-1. **生成时约束**：规则 + 自检流程注入 agent 系统提示，让模型起草时就避开 AI 味。
-2. **审阅时检测**：`star-word review` 对已有文档做机械 + 结构检测，指出违规位置。
-
----
-
-## 快速开始
+## 60 秒安装
 
 ```bash
-# 1. 从源码安装（暂未发布到 PyPI，v0.3 计划发）
-pip install "git+https://github.com/Stargod-0812/star-word.git@v0.3.0#subdirectory=packages/python"
+pip install "git+https://github.com/Stargod-0812/star-word.git@v0.4.0#subdirectory=packages/python"
 
-# 2. 全局接入 Claude Code（所有项目生效）
+# 接入 Claude Code（写到全局 CLAUDE.md）
 star-word enable claude-code --global
 
-# 3. 验证（新开 Claude Code 会话）
-#    问 "star-word 在生效吗？"
-#    应答："已加载 star-word v0.3.0：词表 8 条，结构 8 条，判断 6 条..."
+# 审阅一份文档
+star-word review path/to/doc.md --mode strict
 
-# 4. 审阅一份文档
-star-word review examples/before.md
+# 让 LLM 评估语义规则（需 ANTHROPIC_API_KEY）
+star-word judge path/to/doc.md
+
+# 启动 MCP server（接入 Claude Desktop / Cursor）
+star-word mcp
 ```
 
-没装 Python 也能用（见下文「免安装路径」）。
+---
+
+## 为什么不只是个词表
+
+LLM 中文 AI 味的 tell：空洞套话（赋能/闭环/全面提升）、AI 过渡词（值得注意的是/综上所述）、讨好开场收尾（好问题/希望对你有帮助）、铺垫第一句（在当今/随着）、拟人装饰（稳稳接住/保驾护航/丝滑）、段尾复述。这些在预训练语料里高频，模型本能复用。
+
+但禁词只是表层。真正区分人写和 AI 写的是：信息选择、节奏变化、具体性、判断力。
+
+star-word v0.4 的三层防线：
+
+| 层 | 机制 | 覆盖 |
+| --- | --- | --- |
+| **生成时**（adapter 注入） | 词表 + 6 条 forcing function 自检 | 所有 22 条规则 |
+| **审阅时机械层** | 11 条规则的子串/正则/统计检测 | 词组 7 + 式组 4 |
+| **审阅时语义层** | LLM-as-judge 打 0-10 分 | 气组 6 + 式组 3 + 词-05 |
+
+不依赖 LLM 也能跑机械层；想要语义评分给个 API key 就行。
 
 ---
 
 ## 22 条规则
 
-分三组。机械规则和结构规则由 `star-word review` 自动检测；语义规则由宿主模型或人工判断。完整规则体见 [`RULES.md`](./RULES.md)。
+完整规则体见 [`RULES.md`](./RULES.md)。
 
 ### 词 —— 禁用词典（机械检测）
 
 | 规则 | 概要 |
 | --- | --- |
-| 词-01 | 空洞价值词：`赋能`、`闭环`、`抓手`、`顶层设计`、`多维度`、`全面提升`、`打通`、`拉通`、`全链路` |
-| 词-02 | AI 过渡套话：`值得注意的是`、`综上所述`、`毋庸置疑`、`不难发现`、`众所周知`、`某种程度上` |
-| 词-03 | 铺垫式开场：`在当今`、`随着...的发展`、`首先让我们`、`在本文中` |
-| 词-04 | 讨好式表达：`好问题`、`让我来为您解释`、`希望对你有帮助`、`如有疑问请` |
-| 词-05 | 模糊缓冲（非概率语境）：`可能`、`大概`、`也许`、`某种意义上`（语义判断） |
+| 词-01 | 空洞价值词：`赋能`、`闭环`、`抓手`、`顶层设计`、`多维度`、`全面提升`（+ grey_zone 上下文感知词如 `打通`、`链路`） |
+| 词-02 | AI 过渡套话：`值得注意的是`、`综上所述`、`毋庸置疑`、`众所周知` |
+| 词-03 | 铺垫式开场（仅段首）：`在当今`、`随着...的发展`、`首先让我们` |
+| 词-04 | 讨好式表达：`好问题`、`让我来为您解释`、`希望对你有帮助` |
+| 词-05 | 模糊缓冲（非概率语境）：`可能`、`某种程度上` — judge |
 | 词-06 | 滥用「进行」：`进行分析` → `分析` |
 | 词-07 | 单句内 ≥ 3 个「的」 |
-| 词-08 | 拟人化装饰：`稳稳接住`、`默默守护`、`保驾护航`、`丝滑`、`一键搞定` |
+| 词-08 | 拟人化装饰：`稳稳接住`、`保驾护航`、`丝滑`、`一键搞定` |
 
-### 式 —— 结构 tell（结构检测）
+### 式 —— 结构 tell
+
+| 规则 | 概要 | 检测 |
+| --- | --- | --- |
+| 式-01 | 段尾总结句：`综上所述`、`总的来说` 收尾 | 机械 |
+| 式-02 | 机械并列：强套 `首先/其次/最后` | judge |
+| 式-03 | 长定语前置：主语前定语 > 20 字 | judge |
+| 式-04 | 四字词堆砌：连续 4 个及以上四字结构 | 机械 |
+| **式-05** | **术语前后不一致**（v0.4 机械化）：`Model / model` 同文档混用 | 机械 |
+| 式-06 | 中英文标点混用：中文段落混半角 `, . ? !` | 机械 |
+| 式-07 | 列表滥用：能一句话说完的拆 2 项列表 | judge |
+| 式-08 | 句长方差过低：段落内句长 std < 5 且 ≥ 4 句 | 机械 |
+
+### 气 —— 语感原则（LLM-as-judge）
 
 | 规则 | 概要 |
 | --- | --- |
-| 式-01 | 段尾总结句：`综上所述`、`总的来说` 式段落收尾 |
-| 式-02 | 机械并列：强套 `首先/其次/最后` 模板（语义判断） |
-| 式-03 | 长定语前置：主语前的定语超过 20 字（语义判断） |
-| 式-04 | 四字词堆砌：连续 4 个及以上四字结构并列 |
-| 式-05 | 术语前后不一致：`Model / 模型 / model` 混用（语义判断） |
-| 式-06 | 中英文标点混用：中文段落里混半角 `, . ? !` |
-| 式-07 | 列表滥用：能一句话说完的拆成 2 项列表（语义判断） |
-| 式-08 | 句长方差过低：段落内句长 std < 5 且 ≥ 4 句，节奏单调 |
-
-### 气 —— 语感原则（语义判断）
-
-| 规则 | 概要 |
-| --- | --- |
-| 气-01 | 第一句直接入题（删掉第一句第二句仍能独立成文？→ 首句是铺垫） |
+| 气-01 | 第一句直接入题（删首句第二句仍能独立成文？→ 首句是铺垫） |
 | 气-02 | 不说正确但无用的话 |
-| 气-03 | 有判断、有立场，不做「各有优劣」式中立综述 |
+| 气-03 | 有判断、有立场，不做「各有优劣」式综述 |
 | 气-04 | 看本质，不停在现象 |
-| 气-05 | 三句能说完的别用五句（信息密度要到） |
+| 气-05 | 信息密度（三句能说完的别用五句） |
 | 气-06 | 用人话，不文绉绉 |
+
+---
+
+## v0.4 新增能力
+
+### 1. 文档评分（0-100，A-F 等级）
+
+```bash
+$ star-word review docs/RFC.md --mode strict
+...
+文档分: 87.3/100  等级: B  (字数 1240)
+机械 + 结构规则违规总数: 4
+  · 4 条语义规则未评估（需 LLM-as-judge）
+```
+
+三种 mode（`strict` / `normal` / `relaxed`）调权重不调阈值——避免「主动调宽就 10 分」的误导。
+
+### 2. CI gate
+
+```yaml
+# .github/workflows/star-word.yml
+- run: |
+    pip install star-word
+    star-word review docs/RFC.md --mode strict --fail-under 80
+```
+
+`--fail-under` 让退出码反映文档分阈值。文档分 < 80 → 退出码 1，CI 失败。
+
+### 3. LLM-as-judge
+
+`sense-pending` 规则不再是占位符。`star-word judge` 调 Claude API 给气组 6 条 + 部分式组打分：
+
+```bash
+$ ANTHROPIC_API_KEY=sk-... star-word judge docs/RFC.md
+...
+语义规则评分（LLM-as-judge）：
+  气-01: 8.0/10  > 首句「订单服务每日 500w 读」直接入题，无铺垫
+  气-02: 6.0/10  > 第三段有一句「整体架构清晰可靠」属于正确但无用
+  气-03: 9.0/10  > 明确选 Cache-Aside，给了三个原因
+  气-04: 7.0/10  > 部分回答了字面问题但深层未触
+  气-05: 8.0/10  > 信息密度较高
+  气-06: 10.0/10  > 用语自然
+...
+文档分: 84.2/100  等级: B
+```
+
+判 judge 用什么模型不重要——重要的是**严禁让被测模型 judge 自己**（self-preference）。详见 [`bench/methodology.md`](bench/methodology.md)。
+
+### 4. MCP server（一键接入 Claude Desktop / Cursor）
+
+```json
+// ~/Library/Application Support/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "star-word": {
+      "command": "python",
+      "args": ["-m", "star_word.mcp_server"]
+    }
+  }
+}
+```
+
+四个 tool：`review_text`、`judge_text`、`get_rules`、`suggest_rewrite`。零依赖（不用装 mcp SDK），裸 stdio JSON-RPC 实现。
+
+### 5. 改写建议
+
+```bash
+$ ANTHROPIC_API_KEY=sk-... star-word fix docs/RFC.md
+改写建议（4 处）：
+
+L42：
+  - 我们通过顶层设计打通数据，全面提升业务闭环能力。
+  + 我们把订单服务接到消息队列，延迟从 3 秒降到 200ms。
+    理由：删除空词，给具体动作 + 量化结果
+
+L78：
+  - 综上所述，这是一个非常好的方案，希望对你有帮助。
+  + 选 Cache-Aside 不选 Write-Through——读多写少的场景不需要同步写穿。
+    理由：删段尾总结、删讨好式收尾，给立场
+```
+
+### 6. 上下文感知 grey_zone
+
+`打通`、`链路`、`生态`、`布局` 这类词有合法技术用法。v0.4 检测器在 ±3 字窗口内判定：
+
+- `调用链路追踪` → 合法，不报
+- `打通业务链路` → 套话，告警
+- `打通管道连接两个网络` → 合法，不报
+
+---
+
+## 输出 schema 与 CI 集成
+
+完整 JSON schema 见 [`docs/JSON_SCHEMA.md`](docs/JSON_SCHEMA.md)。
+
+```bash
+# 程序化访问
+star-word review doc.md --json | jq '.score.score'
+# 87.3
+```
+
+或 Python API：
+
+```python
+from star_word import detectors, scoring
+text = open("doc.md").read()
+results = detectors.review(text)
+doc = scoring.score_document(results, text, mode="strict")
+print(doc.score, scoring.grade(doc.score))
+```
 
 ---
 
@@ -112,121 +212,74 @@ star-word review examples/before.md
 
 | 接入面 | 模式 | 目标文件 |
 | --- | --- | --- |
-| Claude Code | `anchor-import` | `CLAUDE.md`（项目级或 `~/.claude/CLAUDE.md` 全局级）|
+| Claude Code | `anchor-import` | `CLAUDE.md`（项目级或全局级）|
 | AGENTS.md 兼容（Codex CLI / Zed / Jules / Warp / Gemini CLI / VS Code） | `guarded-block` | `AGENTS.md` |
-| Codex API | `manual-paste` | `.sw/codex-system-prompt.md`（手动粘贴到 `system_prompt`）|
-| CodeBuddy（腾讯云代码助手） | `rule-file` | `.codebuddy/rules/star-word/RULE.mdc`（项目级）或 `~/.codebuddy/rules/star-word/RULE.mdc`（`--global`） |
-| WorkBuddy（腾讯 AI 桌面智能体） | `skill-file` | `~/.workbuddy/skills/star-word/SKILL.md`（始终用户级） |
-
-Cursor、GitHub Copilot、Aider 等待 v0.3 适配。
-
-### 针对不同 surface 的特化
-
-- **Claude Code / AGENTS.md**：`@path` 嵌套导入 + marker 块，让规则在每次会话启动即进入上下文。
-- **CodeBuddy**：用其原生 `.codebuddy/rules/` 机制 + `alwaysApply: true` + `enabled: true` frontmatter，与它的规则加载协议对齐。新建会话才生效（CodeBuddy 特性）。
-- **WorkBuddy**：作为 `SKILL.md` 注入，带角色定义 / 执行流程 / 避坑清单结构，匹配 WorkBuddy 的 Skill 语义。重启 WorkBuddy 才被识别。
+| Codex API | `manual-paste` | `.sw/codex-system-prompt.md`（手动粘贴）|
+| CodeBuddy | `rule-file` | `.codebuddy/rules/star-word/RULE.mdc` |
+| WorkBuddy | `skill-file` | `~/.workbuddy/skills/star-word/SKILL.md` |
+| **MCP（v0.4 新）** | **stdio** | **任何 MCP client（Claude Desktop / Cursor / Cline）** |
 
 ---
 
 ## CLI 参考
 
 ```bash
-star-word --version                      # 版本
-star-word surfaces                       # 列出接入面
-star-word handshake                      # 打印自检口令
+star-word --version                       # 版本
+star-word surfaces                        # 列出接入面
+star-word handshake                       # 打印自检口令
 
 # 接线 / 拆除
-star-word enable claude-code             # 当前目录
-star-word enable claude-code --global    # 全局（写到 ~/.claude/CLAUDE.md）
-star-word disable claude-code [--global]
+star-word enable claude-code --global     # 全局接入
+star-word disable claude-code --global
 
 # 审阅
-star-word review path/to/doc.md          # 人类可读输出
-star-word review path/to/doc.md --json   # 机器可读 JSON
+star-word review doc.md                   # 默认 normal 模式
+star-word review doc.md --mode strict     # 严格
+star-word review doc.md --fail-under 80   # CI gate
+star-word review doc.md --json            # 机器可读
 
-# 所有子命令都支持 --json 供脚本调用
+# LLM 能力（需 ANTHROPIC_API_KEY）
+star-word judge doc.md                    # 评估语义规则
+star-word judge doc.md --rules 气-01,气-02
+star-word fix doc.md --max 10             # 生成改写建议
+
+# 服务模式
+star-word mcp                             # 启动 MCP stdio server
 ```
-
-**退出码**：
-- `0`：成功，零违规
-- `1`：有机械/结构规则违规
-- `2`：参数错误或文件不存在
 
 ---
 
-## 免安装路径（curl 一行）
+## 正向语料库
 
-不想装 pip 包也行：
+[`examples/corpus/`](examples/corpus/) 5 篇原创技术写作示例，演示规则的 target state：
 
-```bash
-VER=v0.3.0
-mkdir -p .sw
-curl -fsSLo .sw/rules.md       "https://raw.githubusercontent.com/Stargod-0812/star-word/${VER}/RULES.md"
-curl -fsSLo .sw/claude.md      "https://raw.githubusercontent.com/Stargod-0812/star-word/${VER}/adapters/claude-code.md"
+1. [JVM Full GC 排查复盘](examples/corpus/01-debugging-jvm-fullgc.md)
+2. [Redis 集群迁移 RFC](examples/corpus/02-rfc-redis-migration.md)
+3. [缓存击穿事故复盘](examples/corpus/03-postmortem-cache-stampede.md)
+4. [限流器选型设计](examples/corpus/04-design-rate-limiter.md)
+5. [数据库索引优化提效](examples/corpus/05-perf-database-index.md)
 
-# 然后在 CLAUDE.md（或 ~/.claude/CLAUDE.md 做全局）里加一行：
-echo '@.sw/claude.md' >> CLAUDE.md
-```
-
-这种路径只走规则注入，不带 `review` 检测能力。要检测能力装 Python 包。
+每篇 strict 模式过、文档分 100/100。ban list 告诉模型不要做什么；正向语料告诉模型要做什么。
 
 ---
 
-## 例子：before / after
+## 局限
 
-`examples/before.md` 是典型 AI 味满格的设计文档：铺垫式开场、`综上所述` 段尾、`稳稳接住`、`保驾护航`、`希望对你有帮助` 收尾。
+诚实说明 v0.4 还有的差距：
 
-```bash
-$ star-word review examples/before.md
-...
-机械 + 结构规则违规总数: 20
-```
-
-`examples/after.md` 是同一主题的改写：
-
-```bash
-$ star-word review examples/after.md
-...
-机械 + 结构规则违规总数: 0
-```
-
-两份对读，就知道「AI 味」具体是什么、干掉之后文字会变成什么样。
+- **bench 不达最低门槛**。v0.2 那份 4 任务 × 1 次的数据被 v0.4 retired，新 bench 还没跑（[methodology](bench/methodology.md) 已定，欢迎社区贡献）。
+- **judge 有 self-preference 风险**。当前默认 judge 用 Claude，被测如果也是 Claude，分数偏高。下一步加 cross-model judge 配置。
+- **只支持简体中文**。架构里有 language 字段，但还没实现非中文规则。
+- **rewriter 没做 fixture-based test**。当前 rewrite 质量靠 model 直觉，没有「改写后能过 review」的强制循环。
+- **MCP server 实现的是 spec 子集**。够用 Claude Desktop / Cursor，复杂场景（resources / prompts）没实现。
 
 ---
 
-## 卸载
+## Roadmap
 
-```bash
-# 拆掉每一个接入过的面
-star-word disable claude-code [--global]
-star-word disable agents-md
-# ...
-
-# 卸 pip 包
-pip uninstall star-word
-```
-
-`disable` 会清 `.sw/` 目录和 `CLAUDE.md` / `AGENTS.md` 里的 marker 块（marker 之外的用户内容不动）。
-
----
-
-## 有效性评测
-
-`bench/run.py` 对 codex CLI 驱动的 GPT-5 做 A/B：baseline（无 star-word）vs treatment（注入 star-word Codex 系统提示）。v0.2.1 结果：
-
-| 任务 | baseline 违规 | treatment 违规 |
-| --- | ---: | ---: |
-| rfc（Redis 迁移方案） | 1 | 0 |
-| debug（Full GC 排查） | 1 | 0 |
-| postmortem（事故复盘） | 0 | 0 |
-| vision（AI 平台愿景） | 3 | 1 |
-| **合计** | **5** | **1**（**-80%**） |
-
-`vision` 任务定性对比尤其值得看：baseline 写出「下一代智能生产力的基础设施」，treatment 改写成立场锋利、痛点具体的版本。完整对比见 [`bench/v0.2-effectiveness.md`](bench/v0.2-effectiveness.md)。
-
-复现：`python3 bench/run.py`（需安装 codex CLI + 有 OpenAI 账号）。
-
-诚实说明：违规数只是 directional signal —— 真正的写作质感改进（立场、密度、具体性）当前的机械规则捕捉不到，需要 v0.3 加上 LLM-as-judge 才能量化。
+- **v0.5**：cross-model judge（让 judge 模型必须不同于被测模型）、rewrite-then-review 闭环、Cursor / Copilot 原生 adapter、社区 bench 汇总
+- **v0.6**：adaptive learning（记录用户接受/拒绝的改写，推导团队偏好）、npm 包
+- **v1.0**：从词表升级为转换图谱——给出「X 应该变成 Y」的映射关系，规则从禁止型变为引导型
 
 ---
 
@@ -237,10 +290,10 @@ git clone https://github.com/Stargod-0812/star-word.git
 cd star-word/packages/python
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                          # 44 个测试，全应通过
+pytest                          # 95+ 个测试
 
-# 改规则：
-cd ~/code/star-word
+# 改规则
+cd ..
 # 编辑 rules.yaml ...
 python3 scripts/build.py        # 重新生成所有产物
 python3 scripts/build.py --check   # CI 用：断言产物与 yaml 同步
@@ -250,42 +303,24 @@ python3 scripts/build.py --check   # CI 用：断言产物与 yaml 同步
 
 ```
 star-word/
-├── rules.yaml                      # 唯一来源（22 条规则）
-├── scripts/build.py                # rules.yaml → 所有产物
-├── RULES.md                        # 生成：规则全文
-├── adapters/                       # 生成：各 surface 的接入口
-│   ├── claude-code.md              # Claude Code（anchor-import）
-│   ├── AGENTS.md                   # AGENTS.md 兼容（guarded-block）
-│   └── codex.md                    # Codex API（manual-paste）
-├── packages/python/
-│   ├── pyproject.toml
-│   ├── star_word/
-│   │   ├── cli.py                  # CLI 入口
-│   │   ├── installer.py            # enable / disable 逻辑
-│   │   ├── detectors.py            # 检测器（机械 + 结构）
-│   │   └── data/                   # 随包分发的 rules.yaml + RULES.md + adapters/
-│   └── tests/                      # pytest 套件（44 个）
-└── examples/
-    ├── before.md                   # AI 味满格的文档
-    └── after.md                    # 改写后
+├── rules.yaml                   # 唯一来源（22 条规则 + 权重）
+├── scripts/build.py             # rules.yaml → 所有产物
+├── RULES.md                     # 生成：规则全文
+├── adapters/                    # 生成：各 surface 接入口
+├── bench/methodology.md         # bench 方法论（v0.4 新）
+├── docs/JSON_SCHEMA.md          # 输出 schema（v0.4 新）
+├── examples/
+│   ├── before.md / after.md     # 反面 / 正面对比
+│   └── corpus/                  # 正向语料库（v0.4 新，5 篇）
+└── packages/python/star_word/
+    ├── cli.py                   # 6 个子命令
+    ├── installer.py             # enable / disable
+    ├── detectors.py             # 11 条机械/结构检测
+    ├── scoring.py               # 0-100 评分（v0.4 新）
+    ├── judge.py                 # LLM-as-judge（v0.4 新）
+    ├── rewriter.py              # 改写建议（v0.4 新）
+    └── mcp_server.py            # MCP stdio server（v0.4 新）
 ```
-
----
-
-## 局限
-
-- **检测器 precision 高，recall 中等**：默认禁用词列表保守。`链路`、`生态`、`布局` 有合法技术用法，不纳入默认检测。rules.yaml 的 grey_zone 字段列了完整「可疑词」供人审。
-- **语义规则不做机械检测**：气-01 到 气-06、式-02/03/05/07、词-05 需要模型或人工判断。`review` 会把它们标记为 `sense-pending`。
-- **只支持简体中文**。
-- **v0.2 只有 Python 包**。npm 包、MCP server、LLM-as-judge 在 v0.3 计划中。
-
----
-
-## Roadmap
-
-- **v0.4**：MCP server（`get_rules` / `review_text` 两个 tool，让任何 MCP 客户端直接接入）、LLM-as-judge runtime 为语义规则量化评分、Cursor / Copilot adapter、cross-model benchmark
-- **v0.5**：adaptive learning（记录用户接受/拒绝的改写，推导团队偏好）、自动改写建议、npm 包
-- **v1.0**：从词表升级为转换图谱——不是告诉模型"别写 X"，而是给出"X 应该变成 Y"的映射关系，让规则从禁止型变为引导型
 
 ---
 
@@ -293,6 +328,7 @@ star-word/
 
 - 代码（`packages/`、`scripts/`）：MIT
 - 规则文本（`RULES.md`、`adapters/*.md`、`rules.yaml`）：CC-BY-4.0
+- 正向语料（`examples/corpus/*.md`）：CC-BY-4.0
 
 转载、改编、再分发均欢迎，保留归属即可。见 [`NOTICE.md`](./NOTICE.md) 与 [`LICENSE`](./LICENSE)。
 

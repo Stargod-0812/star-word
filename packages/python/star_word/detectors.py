@@ -50,14 +50,31 @@ class ScanContext:
 
 BANNED_词_01 = [
     "赋能", "闭环", "抓手", "顶层设计", "多维度", "全面提升", "深度赋能",
-    "打通", "拉通", "加持", "一体化", "全链路", "场景化",
+    "拉通", "加持", "一体化", "场景化",
 ]
 
 # 上下文感知：grey_zone 词只在套话上下文里告警，合法技术用法不报
+# 与 rules.yaml 的 grey_zone 字段对齐
 CONTEXT_词_01 = {
     "打通": {
-        "ban_contexts": ["打通数据", "打通链路", "打通壁垒", "打通业务"],
+        "ban_contexts": ["打通数据", "打通链路", "打通壁垒", "打通业务", "打通生态"],
         "allow_contexts": ["打通隧道", "打通网络", "打通管道"],
+    },
+    "全链路": {
+        "ban_contexts": ["全链路赋能", "全链路价值", "全链路服务"],
+        "allow_contexts": ["全链路追踪", "全链路压测", "全链路监控"],
+    },
+    "链路": {
+        "ban_contexts": ["业务链路", "价值链路", "增长链路"],
+        "allow_contexts": ["调用链路", "补偿链路", "链路追踪", "数据链路", "链路层"],
+    },
+    "生态": {
+        "ban_contexts": ["产业生态", "战略生态", "赋能生态"],
+        "allow_contexts": ["开发者生态", "生态系统", "插件生态", "技术生态"],
+    },
+    "布局": {
+        "ban_contexts": ["战略布局", "全国布局", "全球布局", "生态布局"],
+        "allow_contexts": ["页面布局", "UI 布局", "布局组件", "栅格布局", "弹性布局"],
     },
 }
 
@@ -96,7 +113,6 @@ SEMANTIC_RULES = [
     ("词-05", "模糊缓冲（需判断是否在谈概率）"),
     ("式-02", "机械并列（需判断信息是否真并列）"),
     ("式-03", "长定语前置（需中文句法分析）"),
-    ("式-05", "术语前后不一致（需语义聚合）"),
     ("式-07", "列表滥用（需判断信息是否真需并列）"),
     ("气-01", "第一句直接入题"),
     ("气-02", "不说正确但无用的话"),
@@ -179,8 +195,51 @@ def _scan_banned(
 # -------- 规则实现 --------
 
 
+def _scan_context_aware(
+    ctx: ScanContext, rule_id: str, context_map: dict, label: str
+) -> List[Violation]:
+    """上下文感知扫描：grey_zone 词只在 ban_contexts 出现时告警，allow_contexts 不报。
+
+    若词在 allow_contexts 之一里出现，跳过；
+    若词在 ban_contexts 之一里出现，告警；
+    若都不在，保守不告警（避免误报）。
+    """
+    out: List[Violation] = []
+    for i, masked in enumerate(ctx.masked_lines):
+        if ctx.fence_map[i]:
+            continue
+        for word, contexts in context_map.items():
+            ban_ctxs = contexts.get("ban_contexts", [])
+            allow_ctxs = contexts.get("allow_contexts", [])
+            start = 0
+            while True:
+                col = masked.find(word, start)
+                if col < 0:
+                    break
+                # 检查 ±3 字窗口内是否落在 allow/ban 上下文里
+                window_start = max(0, col - 3)
+                window_end = min(len(masked), col + len(word) + 3)
+                window = masked[window_start:window_end]
+                # allow 优先级最高
+                if any(ac in window for ac in allow_ctxs):
+                    start = col + len(word)
+                    continue
+                if any(bc in window for bc in ban_ctxs):
+                    out.append(Violation(
+                        rule_id=rule_id,
+                        message=f"{label}（套话语境）：{word!r}",
+                        line=i + 1,
+                        col=col + 1,
+                        excerpt=_excerpt(ctx.lines[i], col),
+                    ))
+                start = col + len(word)
+    return out
+
+
 def 词_01(ctx: ScanContext) -> RuleResult:
+    """空洞价值词：默认禁词列表 + grey_zone 词的上下文感知检测。"""
     v = _scan_banned(ctx, "词-01", BANNED_词_01, "空洞价值词")
+    v.extend(_scan_context_aware(ctx, "词-01", CONTEXT_词_01, "空洞价值词"))
     return RuleResult("词-01", "ok" if not v else "violations", v)
 
 
@@ -352,6 +411,54 @@ def 式_06(ctx: ScanContext) -> RuleResult:
     return RuleResult("式-06", "ok" if not out else "violations", out)
 
 
+def 式_05(ctx: ScanContext) -> RuleResult:
+    """术语前后不一致：同文档内同一概念用了大小写不同的写法。
+
+    机制：
+    1. 提取所有 ASCII 标识符（≥3 字符，含字母）；
+    2. 按 lowercase 聚合，若同一 key 下出现 ≥2 种写法且每种写法 ≥1 次，告警；
+    3. 已 mask 掉代码块/inline code，避免误报代码里的合法 case 差异。
+
+    例：「训练 Model 需要数据。导出 model 权重」→ Model 与 model 同概念，告警。
+    例：「URL 解析 vs url 编码」→ URL/url 两种写法，告警。
+
+    保护：
+    - 缩写（≤ 2 字符）跳过：避免 "id" 与 "ID" 这种合法变体误报。
+    - 路径里的标识符已被 _mask_line 的 fence_map 覆盖。
+    """
+    # 收集所有 ASCII identifiers（含字母，≥3 字符）
+    ident_pattern = re.compile(r"[A-Za-z][A-Za-z0-9_]{2,}")
+    occurrences: dict[str, dict[str, list[tuple[int, int]]]] = {}
+    # key: lowercase form, value: { actual_case: [(line_idx, col), ...] }
+
+    for i, masked in enumerate(ctx.masked_lines):
+        if ctx.fence_map[i]:
+            continue
+        for m in ident_pattern.finditer(masked):
+            term = m.group(0)
+            key = term.lower()
+            occurrences.setdefault(key, {}).setdefault(term, []).append((i, m.start()))
+
+    out: List[Violation] = []
+    for key, variants in occurrences.items():
+        if len(variants) < 2:
+            continue
+        # 按出现次数倒序，第一个是主导写法
+        sorted_variants = sorted(variants.items(), key=lambda kv: -len(kv[1]))
+        dominant = sorted_variants[0][0]
+        for variant, locs in sorted_variants[1:]:
+            # 每个非主导变体的第一处出现报一次
+            line_idx, col = locs[0]
+            out.append(Violation(
+                rule_id="式-05",
+                message=f"术语不一致：{variant!r} 与主导写法 {dominant!r}（出现 {len(sorted_variants[0][1])} 次）混用",
+                line=line_idx + 1,
+                col=col + 1,
+                excerpt=_excerpt(ctx.lines[line_idx], col),
+            ))
+    return RuleResult("式-05", "ok" if not out else "violations", out)
+
+
 def 式_08(ctx: ScanContext) -> RuleResult:
     """句长方差过低：段落内句子长度标准差 < 5 且句子数 ≥ 4。
 
@@ -410,7 +517,7 @@ def 式_08(ctx: ScanContext) -> RuleResult:
 
 DETECTORS: List[Callable[[ScanContext], RuleResult]] = [
     词_01, 词_02, 词_03, 词_04, 词_06, 词_07, 词_08,
-    式_01, 式_04, 式_06, 式_08,
+    式_01, 式_04, 式_05, 式_06, 式_08,
 ]
 
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import List
 
 from . import __version__
-from . import detectors, installer
+from . import detectors, installer, scoring
 
 
 def _print_human(r: installer.InstallResult) -> None:
@@ -82,11 +82,13 @@ def cmd_review(args: argparse.Namespace) -> int:
         return 2
 
     results = detectors.review(text)
+    doc = scoring.score_document(results, text, mode=args.mode)
 
     if args.json or args.audit_only:
         payload = {
             "version": __version__,
             "file": str(path),
+            "score": doc.as_dict(),
             "results": [
                 {
                     "rule_id": r.rule_id,
@@ -99,10 +101,12 @@ def cmd_review(args: argparse.Namespace) -> int:
         }
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         total = sum(len(r.violations) for r in results)
+        if args.fail_under is not None and doc.score < args.fail_under:
+            return 1
         return 1 if total > 0 else 0
 
     total = 0
-    print(f"star-word v{__version__} review: {path}")
+    print(f"star-word v{__version__} review: {path}  [mode={args.mode}]")
     print("-" * 60)
     for r in results:
         if r.status == "sense-pending":
@@ -117,11 +121,103 @@ def cmd_review(args: argparse.Namespace) -> int:
             if count > 5:
                 print(f"  ... (还有 {count - 5} 处省略；用 --json 查看全部)")
     print("\n" + "-" * 60)
+    grade = scoring.grade(doc.score)
+    print(f"文档分: {doc.score:.1f}/100  等级: {grade}  (字数 {doc.char_count})")
     print(f"机械 + 结构规则违规总数: {total}")
+    for note in doc.notes:
+        print(f"  · {note}")
     pending = [r.rule_id for r in results if r.status == "sense-pending"]
     if pending:
-        print(f"语义规则（需宿主模型或人工判断）: {', '.join(pending)}")
+        print(f"语义规则（pending）: {', '.join(pending)}")
+        print("  跑 `star-word judge <file>` 让 LLM 评估这些规则。")
+    if args.fail_under is not None and doc.score < args.fail_under:
+        print(f"\n✗ 文档分 {doc.score:.1f} 低于阈值 {args.fail_under}")
+        return 1
     return 1 if total > 0 else 0
+
+
+def cmd_judge(args: argparse.Namespace) -> int:
+    path = Path(args.file)
+    if not path.exists():
+        print(f"错误: 文件不存在 {path}", file=sys.stderr)
+        return 2
+    text = path.read_text(encoding="utf-8")
+
+    from . import judge
+    rule_ids = args.rules.split(",") if args.rules else None
+    try:
+        judge_scores = judge.judge_text(text, rule_ids=rule_ids)
+    except judge.JudgeError as e:
+        print(f"错误: {e}", file=sys.stderr)
+        return 2
+
+    # 同时跑 review 拿机械分
+    results = detectors.review(text)
+    doc = scoring.score_document(results, text, mode=args.mode, judge_results=judge_scores)
+
+    if args.json:
+        print(json.dumps(doc.as_dict(), ensure_ascii=False, indent=2))
+        return 0
+
+    print(f"star-word v{__version__} judge: {path}  [mode={args.mode}]")
+    print("-" * 60)
+    print(f"\n语义规则评分（LLM-as-judge）：\n")
+    for s in judge_scores:
+        print(f"  {s.rule_id}: {s.score:.1f}/10")
+        if s.judge_reasoning:
+            print(f"    > {s.judge_reasoning}")
+    print("\n" + "-" * 60)
+    print(f"文档分: {doc.score:.1f}/100  等级: {scoring.grade(doc.score)}")
+    return 0
+
+
+def cmd_fix(args: argparse.Namespace) -> int:
+    path = Path(args.file)
+    if not path.exists():
+        print(f"错误: 文件不存在 {path}", file=sys.stderr)
+        return 2
+    text = path.read_text(encoding="utf-8")
+
+    from . import rewriter
+    results = detectors.review(text)
+    try:
+        suggestions = rewriter.suggest_rewrites(text, results, max_violations=args.max)
+    except rewriter.RewriteError as e:
+        print(f"错误: {e}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        payload = {
+            "file": str(path),
+            "suggestions": [
+                {
+                    "line": s.line,
+                    "original": s.original,
+                    "suggested": s.suggested,
+                    "reason": s.reason,
+                }
+                for s in suggestions
+            ],
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return 0
+
+    if not suggestions:
+        print("无违规，无需改写。")
+        return 0
+    print(f"改写建议（{len(suggestions)} 处）：\n")
+    for s in suggestions:
+        print(f"L{s.line}：")
+        print(f"  - {s.original}")
+        print(f"  + {s.suggested}")
+        print(f"    理由：{s.reason}\n")
+    return 0
+
+
+def cmd_mcp(args: argparse.Namespace) -> int:
+    from . import mcp_server
+    mcp_server.serve()
+    return 0
 
 
 def cmd_handshake(args: argparse.Namespace) -> int:
@@ -159,7 +255,27 @@ def build_parser() -> argparse.ArgumentParser:
     pr.add_argument("file")
     pr.add_argument("--json", action="store_true")
     pr.add_argument("--audit-only", action="store_true")
+    pr.add_argument("--mode", choices=["strict", "normal", "relaxed"], default="normal",
+                    help="严格度模式（默认 normal）")
+    pr.add_argument("--fail-under", type=float, default=None,
+                    help="文档分低于此值时退出码 1（CI gate 用）")
     pr.set_defaults(func=cmd_review)
+
+    pj = sub.add_parser("judge", help="LLM-as-judge 评估语义规则（需 ANTHROPIC_API_KEY）")
+    pj.add_argument("file")
+    pj.add_argument("--rules", help="只评估指定规则（逗号分隔，如 '气-01,气-02'）")
+    pj.add_argument("--mode", choices=["strict", "normal", "relaxed"], default="normal")
+    pj.add_argument("--json", action="store_true")
+    pj.set_defaults(func=cmd_judge)
+
+    pf = sub.add_parser("fix", help="对违规处生成改写建议（需 ANTHROPIC_API_KEY）")
+    pf.add_argument("file")
+    pf.add_argument("--max", type=int, default=20, help="最多改写多少处（默认 20）")
+    pf.add_argument("--json", action="store_true")
+    pf.set_defaults(func=cmd_fix)
+
+    pm = sub.add_parser("mcp", help="启动 MCP server（stdio）")
+    pm.set_defaults(func=cmd_mcp)
 
     ph = sub.add_parser("handshake", help="打印自检口令")
     ph.set_defaults(func=cmd_handshake)

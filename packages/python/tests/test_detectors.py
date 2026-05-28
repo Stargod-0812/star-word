@@ -248,6 +248,71 @@ def test_式_08_too_few_sentences_skip():
     assert r.status == "ok"
 
 
+# -------- 式-05 术语一致性（v0.4 机械化） --------
+
+
+def test_式_05_flags_case_inconsistency():
+    """同一概念混用不同大小写。"""
+    text = "训练 Model 需要数据。Model 训练完成后导出 model 权重。再训练一次 Model。"
+    ctx = detectors._build_ctx(text)
+    r = detectors.式_05(ctx)
+    assert r.status == "violations"
+    assert any("model" in v.message.lower() for v in r.violations)
+
+
+def test_式_05_clean_pass_when_consistent():
+    """术语一致时不触发。"""
+    text = "训练 model 需要数据。model 训练完成后导出权重到 S3。"
+    ctx = detectors._build_ctx(text)
+    r = detectors.式_05(ctx)
+    assert r.status == "ok"
+
+
+def test_式_05_skips_short_identifiers():
+    """≤2 字符标识符不检测（如 id / ID 是合法变体）。"""
+    text = "用 id 索引。ID 是主键。"
+    ctx = detectors._build_ctx(text)
+    r = detectors.式_05(ctx)
+    assert r.status == "ok"
+
+
+def test_式_05_skips_code_blocks():
+    """代码块内的大小写差异不告警。"""
+    text = """正文用 Redis。
+
+```python
+redis = Redis()
+REDIS_URL = "..."
+```
+
+继续用 Redis 描述。"""
+    ctx = detectors._build_ctx(text)
+    r = detectors.式_05(ctx)
+    assert r.status == "ok"
+
+
+# -------- 词-01 上下文感知 grey_zone（v0.4 接通） --------
+
+
+def test_词_01_grey_zone_triggers_in_business_context():
+    """grey_zone 词在套话语境下应告警。"""
+    text = "我们要打通业务链路，建立战略生态。"
+    ctx = detectors._build_ctx(text)
+    r = detectors.词_01(ctx)
+    assert r.status == "violations"
+    # 应至少抓到「打通」+「业务」的套话上下文
+    assert any("打通" in v.message for v in r.violations)
+
+
+def test_词_01_grey_zone_spares_legitimate_tech_use():
+    """grey_zone 词在合法技术用法下不告警。"""
+    text = "用 OpenTelemetry 做调用链路追踪。打通管道连接两个网络。"
+    ctx = detectors._build_ctx(text)
+    r = detectors.词_01(ctx)
+    # 不应报「链路」或「打通」（在合法技术上下文里）
+    assert all("链路" not in v.message and "打通" not in v.message for v in r.violations)
+
+
 # -------- review() 编排 --------
 
 
@@ -257,8 +322,8 @@ def test_review_returns_all_rules():
     rule_ids = {r.rule_id for r in results}
     expected = {
         "词-01", "词-02", "词-03", "词-04", "词-06", "词-07", "词-08",
-        "式-01", "式-04", "式-06", "式-08",
-        "词-05", "式-02", "式-03", "式-05", "式-07",
+        "式-01", "式-04", "式-05", "式-06", "式-08",
+        "词-05", "式-02", "式-03", "式-07",
         "气-01", "气-02", "气-03", "气-04", "气-05", "气-06",
     }
     assert rule_ids == expected
@@ -267,7 +332,7 @@ def test_review_returns_all_rules():
 def test_review_semantic_pending():
     results = detectors.review("测试文本。")
     sem_ids = {
-        "词-05", "式-02", "式-03", "式-05", "式-07",
+        "词-05", "式-02", "式-03", "式-07",
         "气-01", "气-02", "气-03", "气-04", "气-05", "气-06",
     }
     for r in results:

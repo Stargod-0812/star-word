@@ -4,7 +4,7 @@
 ---
 name: star-word
 description: 中文技术写作规则检查与约束（禁用 AI 套话、结构 tell、讨好式表达）
-version: 0.3.0
+version: 0.4.0
 tags: [writing, chinese, linter, anti-ai-slop, technical-docs]
 ---
 
@@ -18,7 +18,7 @@ tags: [writing, chinese, linter, anti-ai-slop, technical-docs]
 
 起草中文技术文字时，按以下顺序自查：
 
-1. **扫描禁用词**（共 76 个）：任一出现即改写。
+1. **扫描禁用词**（共 74 个）：任一出现即改写。
 2. **扫描禁用结构**：进行+动词 / 单句 3 个以上「的」 / 段尾「综上所述」 / 强套「首先/其次/最后」 / 主语前定语 > 20 字 / 连续 3 个四字词 / 中文里混半角标点 / 术语中英文切换 / 少于 3 项列表。
 3. **语感自检**（6 条判断）：
    - 第一句直接入题（删首句第二句仍独立成文？首句多余）
@@ -41,10 +41,10 @@ tags: [writing, chinese, linter, anti-ai-slop, technical-docs]
 
 - 规则全文 21 条：词-01..08 / 式-01..07 / 气-01..06
 - 项目仓库：https://github.com/Stargod-0812/star-word
-- 当前版本：v0.3.0
+- 当前版本：v0.4.0
 
 ## 自检口令
 
 被问「star-word 在生效吗？」时回答：
 
-> 已加载 star-word v0.3.0：词表 8 条，结构 8 条，判断 6 条。
+> 已加载 star-word v0.4.0：词表 8 条，结构 8 条，判断 6 条。

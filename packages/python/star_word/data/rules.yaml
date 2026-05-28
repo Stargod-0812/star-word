@@ -3,7 +3,7 @@
 # 直接改此文件，然后跑 scripts/build.py。
 
 meta:
-  version: "0.3.0"
+  version: "0.4.0"
   language: "zh-Hans"
   total_rules: 22
   groups:
@@ -43,19 +43,21 @@ rules:
       - 多维度
       - 全面提升
       - 深度赋能
-      - 打通
       - 拉通
       - 加持
       - 一体化
-      - 全链路
       - 场景化
     grey_zone:
+      - word: 打通
+        note: "ban: 打通数据/链路/壁垒/业务/生态；allow: 打通隧道/网络/管道"
+      - word: 全链路
+        note: "ban: 全链路赋能/价值/服务；allow: 全链路追踪/压测/监控"
       - word: 链路
-        note: "合法：调用链路、补偿链路、链路追踪；可疑：打通业务链路"
+        note: "ban: 业务链路/价值链路；allow: 调用链路、链路追踪"
       - word: 生态
-        note: "合法：开发者生态、生态系统；可疑：赋能产业生态"
+        note: "ban: 产业/战略/赋能生态；allow: 开发者生态、生态系统"
       - word: 布局
-        note: "合法：页面布局、UI 布局；可疑：战略布局"
+        note: "ban: 战略/全国/全球布局；allow: 页面/UI 布局、布局组件"
       - word: 落地
         note: "作动词时（让需求落地）"
       - word: 沉淀
@@ -280,10 +282,11 @@ rules:
     code: shape_05
     title: 术语前后不一致
     group: 式
-    detect_status: semantic
     why: |
       同一份文档里，同一个概念只用一个名字。
       读者每切换一次都要做一次等价映射。
+    detect_threshold:
+      min_term_len: 3
     bad: "训练 Model 需要大量数据。模型训练完成后，导出 model 权重到 S3。"
     good: "训练 model 需要大量数据。model 训练完成后，导出权重到 S3。"
 
