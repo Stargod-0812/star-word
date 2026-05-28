@@ -195,7 +195,10 @@ def judge_text(
         except (TypeError, ValueError):
             continue
         # v0.4.2: NaN / Infinity 入侵防御
-        # max(0.0, min(10.0, float("nan"))) 会返回 nan（IEEE 754），让违规计数静默退化
+        # CPython 的 min/max 对 NaN 短路（返回非 NaN 那个），所以
+        # `max(0.0, min(10.0, nan))` 返回 **10.0**，而非 nan。
+        # 即攻击者让模型回 score=NaN 会静默变成满分 10.0，让违规被埋。
+        # `max(0.0, min(10.0, inf))` 同样返回 10.0。两者都需要 isfinite 拦截。
         if not math.isfinite(score_f):
             continue
         score_f = max(0.0, min(10.0, score_f))

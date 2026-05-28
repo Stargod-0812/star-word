@@ -10,7 +10,7 @@
 4. **MCP server** — `star-word mcp` 一键接入 Claude Desktop / Cursor / Cline，把 review/judge/rewrite 变成 tool
 
 ```
-before.md  →  评分 39.8/100  F 级  机械违规 20+ 处
+before.md  →  评分 45.3/100  F 级  机械违规 19 处
 after.md   →  评分 100.0/100  A 级  零违规
 corpus/*   →  评分 100.0/100  A 级（5 篇正向语料，strict 模式过）
 ```
@@ -20,7 +20,7 @@ corpus/*   →  评分 100.0/100  A 级（5 篇正向语料，strict 模式过�
 ## 60 秒安装
 
 ```bash
-pip install "git+https://github.com/Stargod-0812/star-word.git@v0.4.2#subdirectory=packages/python"
+pip install "git+https://github.com/Stargod-0812/star-word.git@v0.4.3#subdirectory=packages/python"
 
 # 接入 Claude Code（写到全局 CLAUDE.md）
 star-word enable claude-code --global
@@ -141,7 +141,7 @@ $ ANTHROPIC_API_KEY=sk-... star-word judge docs/RFC.md
 文档分: 84.2/100  等级: B
 ```
 
-判 judge 用什么模型不重要——重要的是**严禁让被测模型 judge 自己**（self-preference）。当前 v0.4.2 默认 judge 用 `claude-sonnet-4-5`；若你的被测模型也是 Claude 家族，必须改用别家（GPT-4o / Gemini-2.5-Pro / DeepSeek-V3）做 judge。配置：`star-word judge --model <model-id>`。详见 [`bench/methodology.md`](bench/methodology.md)。
+判 judge 用什么模型不重要——重要的是**严禁让被测模型 judge 自己**（self-preference）。当前 v0.4.3 的 `--model` 参数仅支持 Anthropic 家族（`claude-opus-4-5` / `claude-haiku-4-5` / `claude-sonnet-4-5`）；要避开 self-preference 必须把被测模型与 judge 模型分到 Anthropic 家族内不同 tier（例如被测 sonnet → judge 用 opus）。**OpenAI / Gemini / DeepSeek 跨厂商 judge 仍是 deferred**：`_llm.py` 当前硬编码 `api.anthropic.com`，跨厂商需要 v0.5 重构 provider 抽象层。详见 [`bench/methodology.md`](bench/methodology.md)。
 
 ### 4. MCP server（一键接入 Claude Desktop / Cursor）
 
@@ -268,7 +268,7 @@ star-word mcp                             # 启动 MCP stdio server
 诚实说明 v0.4 还有的差距：
 
 - **bench 不达最低门槛**。v0.2 那份 4 任务 × 1 次的数据被 v0.4 retired，新 bench 还没跑（[methodology](bench/methodology.md) 已定，欢迎社区贡献）。
-- **judge 有 self-preference 风险**。当前默认 judge 用 Claude，被测如果也是 Claude，分数偏高。**缓解措施**：v0.4.2 已支持 `--model` 切判模——把被测模型与 judge 模型显式分开（GPT 判 Claude / Claude 判 GPT），即可避开 self-preference。下一步把 cross-model assert 内置到 CI gate。
+- **judge 有 self-preference 风险**。当前 `_llm.py` 硬编码 `api.anthropic.com`，`--model` 参数仅支持 Anthropic 家族（claude-opus / claude-haiku / claude-sonnet）。家族内换 tier 能部分缓解（被测 sonnet → judge opus）但不能完全消除。**跨厂商 judge（GPT/Gemini 判 Claude）需 v0.5 重构 provider 抽象层**——这是 v0.4.x 系列已知的最大可信度缺口，`bench/` 下的所有数字暂时都受此约束。
 - **只支持简体中文**。架构里有 language 字段，但还没实现非中文规则。
 - **rewriter 没做 fixture-based test**。当前 rewrite 质量靠 model 直觉，没有「改写后能过 review」的强制循环。
 - **MCP server 实现的是 spec 子集**。够用 Claude Desktop / Cursor，复杂场景（resources / prompts）没实现。
@@ -290,7 +290,7 @@ git clone https://github.com/Stargod-0812/star-word.git
 cd star-word/packages/python
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-pytest                          # 95+ 个测试
+pytest                          # 248 个测试（v0.4.3）
 
 # 改规则
 cd ..

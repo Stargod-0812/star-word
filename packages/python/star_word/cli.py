@@ -100,7 +100,8 @@ def cmd_review(args: argparse.Namespace) -> int:
         }
         print(json.dumps(payload, ensure_ascii=False, indent=2))
         total = sum(len(r.violations) for r in results)
-        if args.fail_under is not None and doc.score < args.fail_under:
+        # v0.4.3: N/A 文档（doc.score < 0）不应触发 fail_under（"无信号" ≠ "差"）
+        if args.fail_under is not None and doc.score >= 0 and doc.score < args.fail_under:
             return 1
         return 1 if total > 0 else 0
 
@@ -121,7 +122,9 @@ def cmd_review(args: argparse.Namespace) -> int:
                 print(f"  ... (还有 {count - 5} 处省略；用 --json 查看全部)")
     print("\n" + "-" * 60)
     grade = scoring.grade(doc.score)
-    print(f"文档分: {doc.score:.1f}/100  等级: {grade}  (字数 {doc.char_count})")
+    # v0.4.3: N/A 文档显示 "N/A" 而非 "-1.0/100"
+    score_display = f"{doc.score:.1f}/100" if doc.score >= 0 else "N/A"
+    print(f"文档分: {score_display}  等级: {grade}  (字数 {doc.char_count})")
     print(f"机械 + 结构规则违规总数: {total}")
     for note in doc.notes:
         print(f"  · {note}")
@@ -129,7 +132,7 @@ def cmd_review(args: argparse.Namespace) -> int:
     if pending:
         print(f"语义规则（pending）: {', '.join(pending)}")
         print("  跑 `star-word judge <file>` 让 LLM 评估这些规则。")
-    if args.fail_under is not None and doc.score < args.fail_under:
+    if args.fail_under is not None and doc.score >= 0 and doc.score < args.fail_under:
         print(f"\n✗ 文档分 {doc.score:.1f} 低于阈值 {args.fail_under}")
         return 1
     return 1 if total > 0 else 0

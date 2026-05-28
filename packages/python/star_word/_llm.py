@@ -173,18 +173,29 @@ def extract_json(text: str) -> dict[str, Any]:
     1. ```json ... ``` fenced 块
     2. ``` ... ``` 任意 fenced 块（如果包含 {...}）
     3. 第一个 { 到最后一个 } 之间
+
+    v0.4.3 安全（security N5）：用 parse_constant 拒绝 NaN / Infinity / -Infinity——
+    这些不是 RFC 8259 合法 JSON。攻击者注入这些常量到模型响应里能在下游污染 score。
     """
+    def _strict_parse(s: str) -> dict:
+        return json.loads(
+            s,
+            parse_constant=lambda c: (_ for _ in ()).throw(
+                ValueError(f"strict JSON: {c} not allowed")
+            ),
+        )
+
     # Try fenced JSON first
     fenced_match = re.search(r"```(?:json|JSON)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     if fenced_match:
-        return json.loads(fenced_match.group(1))
+        return _strict_parse(fenced_match.group(1))
 
     # Fallback: brace-balanced
     start = text.find("{")
     end = text.rfind("}")
     if start < 0 or end < 0 or end < start:
         raise ValueError(f"No JSON object found in response: {text[:200]}")
-    return json.loads(text[start : end + 1])
+    return _strict_parse(text[start : end + 1])
 
 
 # -------- 输入护栏 --------

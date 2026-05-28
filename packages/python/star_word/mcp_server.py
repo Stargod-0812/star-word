@@ -167,38 +167,43 @@ def _tool_judge_text(args: dict) -> dict:
 
 
 def _tool_get_rules(args: dict) -> dict:
+    """从 rules.yaml 动态加载规则列表，避免与 yaml 漂移。
+
+    v0.4.3 (architect critical 2): 之前硬编码 22 条规则的 (id, title, group, detect)
+    元组，与 rules.yaml + detectors.DETECTORS+SEMANTIC_RULES + handshake 是 4 个独立
+    source。改 yaml 加规则 → MCP get_rules 仍返回旧列表 → host LLM 不知新规则。
+    现在 _load_rule_data() 动态拉取，single-source 真正成立。
+    """
+    try:
+        data = detectors._load_rule_data()
+    except FileNotFoundError:
+        # 数据文件缺失（包损坏）— 退到极简元数据避免 MCP 崩溃
+        return {
+            "version": __version__,
+            "rules": [],
+            "warning": "rules.yaml 数据文件缺失；包可能损坏，请重装。",
+        }
+
+    semantic_ids = {sid for sid, _ in detectors.SEMANTIC_RULES}
     rules = []
-    for rid, title in [
-        ("词-01", "空洞价值词"),
-        ("词-02", "AI 过渡套话"),
-        ("词-03", "铺垫式开场"),
-        ("词-04", "讨好式表达"),
-        ("词-05", "模糊缓冲"),
-        ("词-06", "滥用「进行」"),
-        ("词-07", "的字过多"),
-        ("词-08", "拟人化装饰词"),
-    ]:
-        rules.append({"id": rid, "title": title, "group": "词", "detect": "mechanical"})
-    for rid, title, mech in [
-        ("式-01", "段尾总结句", "mechanical"),
-        ("式-02", "机械并列", "semantic"),
-        ("式-03", "长定语前置", "semantic"),
-        ("式-04", "四字词堆砌", "mechanical"),
-        ("式-05", "术语前后不一致", "mechanical"),
-        ("式-06", "中英文标点混用", "mechanical"),
-        ("式-07", "列表滥用", "semantic"),
-        ("式-08", "句长方差过低", "mechanical"),
-    ]:
-        rules.append({"id": rid, "title": title, "group": "式", "detect": mech})
-    for rid, title in [
-        ("气-01", "第一句直接入题"),
-        ("气-02", "不说正确但无用的话"),
-        ("气-03", "有判断、有立场"),
-        ("气-04", "看本质，不停在现象"),
-        ("气-05", "信息密度"),
-        ("气-06", "用人话，不文绉绉"),
-    ]:
-        rules.append({"id": rid, "title": title, "group": "气", "detect": "semantic"})
+    for rule in data.get("rules", []):
+        rid = rule.get("id", "")
+        title = rule.get("title") or rule.get("name") or rid
+        # group 从 rid 前缀推断（词/式/气）
+        group = rid.split("-", 1)[0] if "-" in rid else "?"
+        detect = "semantic" if rid in semantic_ids else "mechanical"
+        rules.append({"id": rid, "title": title, "group": group, "detect": detect})
+
+    # 不变量：规则数应等于 meta.total_rules（catch yaml 头尾不同步）
+    expected = (data.get("meta") or {}).get("total_rules")
+    if isinstance(expected, int) and len(rules) != expected:
+        rules.append({
+            "id": "doc:warning",
+            "title": f"meta.total_rules={expected} 但实际加载 {len(rules)} 条；yaml 可能漂移",
+            "group": "?",
+            "detect": "warning",
+        })
+
     return {"version": __version__, "rules": rules}
 
 

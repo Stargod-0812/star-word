@@ -6,6 +6,7 @@ import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 # 不与常见 lint/linter marker 重合的 namespace（刻意避开 agent-style 的 :begin/:end 模式）
 MARKER_BEGIN = "<!-- sw-managed-begin -->"
@@ -68,8 +69,42 @@ def _safe_copy(src: Path, dst: Path) -> None:
     shutil.copy2(src, dst)
 
 
+def _assert_path_within(target: Path, root: Path) -> None:
+    """v0.4.3 安全：确保 target 实际解析后仍在 root 内，防中间组件 symlink 攻击。
+
+    场景：受害者 git clone 含恶意 `.codebuddy → ~/.ssh/` symlink 的 repo，跑
+    `star-word enable codebuddy` 时 `mkdir(parents=True)` 静默穿过 symlink，把
+    RULE.mdc 写到 ~/.ssh/。_safe_copy 只检查 leaf parent（mkdir 新建的真目录），
+    中间 `.codebuddy` symlink 不在防御范围。
+
+    解法：resolve(strict=False) 后 is_relative_to(root.resolve()) 校验。
+    """
+    try:
+        target_resolved = target.resolve(strict=False)
+        root_resolved = root.resolve(strict=False)
+    except (OSError, RuntimeError) as e:
+        raise ValueError(f"无法解析路径 {target}: {e}")
+    # 兼容 Python 3.9（is_relative_to 是 3.9+，但 fallback 到字符串前缀对比）
+    try:
+        if not target_resolved.is_relative_to(root_resolved):
+            raise ValueError(
+                f"路径 {target} 实际解析到 {target_resolved}，超出预期根 {root_resolved}。"
+                "中间组件可能是 symlink 指向其他位置；拒绝操作。"
+            )
+    except AttributeError:
+        # Python 3.9 fallback
+        if not str(target_resolved).startswith(str(root_resolved) + "/") and target_resolved != root_resolved:
+            raise ValueError(
+                f"路径 {target} 实际解析到 {target_resolved}，超出预期根 {root_resolved}。"
+            )
+
+
 def _write_shared_rules(root: Path) -> None:
-    """把 rules.md 与 adapter 写到 <root>/.sw/。"""
+    """把 rules.md 与 adapter 写到 <root>/.sw/。
+
+    v0.4.3 (security R2 N2): 校验 store 实际解析后仍在 root 内——防 root 本身或其
+    祖先组件是 symlink 指向 attacker dir，让 .sw/* 落地越权。
+    """
     store = root / STORE_DIR_NAME
     if store.is_symlink():
         # 如果 .sw/ 本身是 symlink 指向其他目录，拒绝
@@ -78,6 +113,8 @@ def _write_shared_rules(root: Path) -> None:
             "请删除 symlink 后再试。"
         )
     store.mkdir(parents=True, exist_ok=True)
+    # mkdir 后才能 resolve；防 root 是 symlink 指向 attacker dir
+    _assert_path_within(store, root)
     _safe_copy(_data_path("RULES.md"), store / "rules.md")
     _safe_copy(_data_path("adapters", "claude-code.md"), store / "claude.md")
     yaml_src = DATA_DIR / "rules.yaml"
@@ -194,10 +231,20 @@ def enable_claude_code(global_scope: bool = False) -> InstallResult:
 def disable_claude_code(global_scope: bool = False) -> InstallResult:
     root = _resolve_target_root(global_scope)
     claude_md = root / "CLAUDE.md"
-    changed = _strip_marker_block(claude_md)
     sw_dir = root / STORE_DIR_NAME
+    # v0.4.3: 即使 _strip_marker_block raise（symlink/max_iter），仍尽量清理 .sw/
+    # 否则用户看到 ValueError → 退出 2 → .sw/ 残留无人清理
+    strip_error: Optional[str] = None
+    changed = False
+    try:
+        changed = _strip_marker_block(claude_md)
+    except ValueError as e:
+        strip_error = str(e)
     if sw_dir.exists():
-        shutil.rmtree(sw_dir)
+        shutil.rmtree(sw_dir, ignore_errors=True)
+    if strip_error:
+        # 已清理 .sw/，但 marker 处理失败——重抛让用户知道要手动检查 CLAUDE.md
+        raise ValueError(f"{strip_error}（已清理 .sw/，请手动检查 {claude_md}）")
     return InstallResult(
         surface="claude-code",
         mode="anchor-import",
@@ -232,10 +279,17 @@ def enable_agents_md(global_scope: bool = False) -> InstallResult:
 def disable_agents_md(global_scope: bool = False) -> InstallResult:
     root = _resolve_target_root(global_scope)
     agents_md = root / "AGENTS.md"
-    changed = _strip_marker_block(agents_md)
     sw_dir = root / STORE_DIR_NAME
+    strip_error: Optional[str] = None
+    changed = False
+    try:
+        changed = _strip_marker_block(agents_md)
+    except ValueError as e:
+        strip_error = str(e)
     if sw_dir.exists():
-        shutil.rmtree(sw_dir)
+        shutil.rmtree(sw_dir, ignore_errors=True)
+    if strip_error:
+        raise ValueError(f"{strip_error}（已清理 .sw/，请手动检查 {agents_md}）")
     return InstallResult(
         surface="agents-md",
         mode="guarded-block",
@@ -288,12 +342,15 @@ def enable_codebuddy(global_scope: bool = False) -> InstallResult:
     """接入 CodeBuddy: 写 .codebuddy/rules/star-word/RULE.mdc.
 
     --global 时写到 ~/.codebuddy/rules/star-word/RULE.mdc（CodeBuddy 用户级规则路径）。
+    v0.4.3 安全加固：mkdir 后校验中间组件无 symlink 越权。
     """
     if global_scope:
-        rule_dir = Path.home() / ".codebuddy" / "rules" / "star-word"
+        intended_root = Path.home() / ".codebuddy"
     else:
-        rule_dir = Path.cwd() / ".codebuddy" / "rules" / "star-word"
+        intended_root = Path.cwd() / ".codebuddy"
+    rule_dir = intended_root / "rules" / "star-word"
     rule_dir.mkdir(parents=True, exist_ok=True)
+    _assert_path_within(rule_dir, intended_root)
     target = rule_dir / "RULE.mdc"
     _safe_copy(_data_path("adapters", "codebuddy.md"), target)
     return InstallResult(
@@ -310,11 +367,14 @@ def enable_codebuddy(global_scope: bool = False) -> InstallResult:
 
 def disable_codebuddy(global_scope: bool = False) -> InstallResult:
     if global_scope:
-        rule_dir = Path.home() / ".codebuddy" / "rules" / "star-word"
+        intended_root = Path.home() / ".codebuddy"
     else:
-        rule_dir = Path.cwd() / ".codebuddy" / "rules" / "star-word"
+        intended_root = Path.cwd() / ".codebuddy"
+    rule_dir = intended_root / "rules" / "star-word"
     existed = rule_dir.exists()
     if existed:
+        # v0.4.3: rmtree 前校验 — 防中间组件 symlink 让 rmtree 删任意目录
+        _assert_path_within(rule_dir, intended_root)
         shutil.rmtree(rule_dir)
     return InstallResult(
         surface="codebuddy",
@@ -330,9 +390,12 @@ def enable_workbuddy(global_scope: bool = False) -> InstallResult:
     """接入 WorkBuddy: 写 ~/.workbuddy/skills/star-word/SKILL.md.
 
     WorkBuddy 的 skills 只支持用户级，忽略 --global 参数（无项目级概念）。
+    v0.4.3 安全加固：同 codebuddy，mkdir 后校验中间组件无 symlink 越权。
     """
-    skill_dir = Path.home() / ".workbuddy" / "skills" / "star-word"
+    intended_root = Path.home() / ".workbuddy"
+    skill_dir = intended_root / "skills" / "star-word"
     skill_dir.mkdir(parents=True, exist_ok=True)
+    _assert_path_within(skill_dir, intended_root)
     target = skill_dir / "SKILL.md"
     _safe_copy(_data_path("adapters", "workbuddy.md"), target)
     return InstallResult(
@@ -348,9 +411,11 @@ def enable_workbuddy(global_scope: bool = False) -> InstallResult:
 
 
 def disable_workbuddy(global_scope: bool = False) -> InstallResult:
-    skill_dir = Path.home() / ".workbuddy" / "skills" / "star-word"
+    intended_root = Path.home() / ".workbuddy"
+    skill_dir = intended_root / "skills" / "star-word"
     existed = skill_dir.exists()
     if existed:
+        _assert_path_within(skill_dir, intended_root)
         shutil.rmtree(skill_dir)
     return InstallResult(
         surface="workbuddy",
@@ -361,12 +426,44 @@ def disable_workbuddy(global_scope: bool = False) -> InstallResult:
     )
 
 
+# mcp: stdio server, no install action needed (just run the binary)
+def enable_mcp(global_scope: bool = False) -> InstallResult:
+    """MCP 接入面：不需要 enable，启动 server 即可。
+
+    v0.4.3 (architect HIGH 2): list_surfaces 列了 mcp 但 SUPPORTED_SURFACES 没有
+    `enable mcp` → ValueError，文档跟 CLI 矛盾。现在返回 InstallResult 描述如何手动接。
+    """
+    return InstallResult(
+        surface="mcp",
+        mode="stdio-server",
+        wired=False,  # 不写文件——MCP 客户端配置由用户自己加
+        target="python -m star_word.mcp_server",
+        notes=(
+            "MCP 是 stdio server，不需要 enable。手动配置 client：\n"
+            "Claude Desktop: ~/Library/Application Support/Claude/claude_desktop_config.json\n"
+            '  "mcpServers": {"star-word": {"command": "python", "args": ["-m", "star_word.mcp_server"]}}\n'
+            "Cursor / Cline 类似配置。详见 README.md MCP 段。"
+        ),
+    )
+
+
+def disable_mcp(global_scope: bool = False) -> InstallResult:
+    return InstallResult(
+        surface="mcp",
+        mode="stdio-server",
+        wired=False,
+        target="",
+        notes="MCP 没有持久 enable 状态。请手动从 client 配置删除 star-word 条目。",
+    )
+
+
 SUPPORTED_SURFACES = {
     "claude-code": (enable_claude_code, disable_claude_code),
     "agents-md": (enable_agents_md, disable_agents_md),
     "codex": (enable_codex, disable_codex),
     "codebuddy": (enable_codebuddy, disable_codebuddy),
     "workbuddy": (enable_workbuddy, disable_workbuddy),
+    "mcp": (enable_mcp, disable_mcp),
 }
 
 

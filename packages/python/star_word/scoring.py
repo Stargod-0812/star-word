@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -169,6 +170,11 @@ def score_document(
     - GroupScore.has_active 不再用 setattr hack
     """
     char_count = len(text)
+    # v0.4.3: 入口 isfinite 过滤——judge 的 NaN/Inf 防御不能假设上游路径都做了。
+    # 直接 API 调用方 / MCP 客户端 / 库使用者 可能传入 NaN，会让 doc_score=nan
+    # 静默污染 cli 输出 "nan/100"。
+    if judge_results:
+        judge_results = [r for r in judge_results if math.isfinite(r.score)]
     judge_by_id = {r.rule_id: r for r in (judge_results or [])}
 
     notes: List[str] = []

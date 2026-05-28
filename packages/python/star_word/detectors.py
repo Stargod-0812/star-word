@@ -64,25 +64,30 @@ class ScanContext:
 
 
 def _load_rule_data() -> dict:
-    """加载 packaged rules.yaml。优先 PyYAML，fallback 自带极简 parser。"""
+    """加载 packaged rules.yaml。优先 PyYAML，fallback 自带极简 parser。
+
+    v0.4.3: 解析逻辑统一移到 ._yaml.parse_yaml。之前 fallback 是
+    `from scripts.build import _parse_yaml`——但 scripts/ 不在 wheel 内，
+    pip 装的用户 fallback 失败 → 上层 except Exception 退到 _DEFAULT_WORD_LISTS（仅 6 条）。
+    现在 _yaml 模块随包一起，single-source 真正成立。
+    """
     yaml_path = Path(__file__).resolve().parent / "data" / "rules.yaml"
     text = yaml_path.read_text(encoding="utf-8")
-    try:
-        import yaml  # type: ignore
-        return yaml.safe_load(text)
-    except ImportError:
-        pass
-    # fallback: 与 scripts/build.py 同款极简 parser，避免重复维护
-    from scripts.build import _parse_yaml  # type: ignore
-    return _parse_yaml(text)
+    from ._yaml import parse_yaml
+    return parse_yaml(text)
 
 
 def _build_word_lists() -> dict[str, List[str]]:
-    """从 rules.yaml 抽出每条规则的禁词列表。"""
+    """从 rules.yaml 抽出每条规则的禁词列表。
+
+    v0.4.3 改：之前 `except Exception → _DEFAULT_WORD_LISTS` 静默掩盖任何错误（含
+    architect 发现的 scripts.build import failure）。现在仅 FileNotFoundError
+    才走 fallback；解析失败 raise，让用户看到包损坏。
+    """
     try:
         data = _load_rule_data()
-    except Exception:
-        # 极端 fallback：data 文件不可读时回退到代码内默认（保证可启动）
+    except FileNotFoundError:
+        # data 文件缺失（极少：包损坏）才走代码内 fallback；其他错误抛出去
         return _DEFAULT_WORD_LISTS
     out: dict[str, List[str]] = {}
     for rule in data.get("rules", []):
@@ -288,8 +293,10 @@ def _mask_line(line: str) -> str:
     out = re.sub(r"'[^']*'", lambda m: " " * len(m.group(0)), out)
     out = re.sub(r"<[^>]+>", lambda m: " " * len(m.group(0)), out)
     # Markdown 链接：[text](url) — 保留 text，mask URL 部分
+    # v0.4.3 (security N3): 用 [^\[\]] 禁止嵌套 [ 防 quadratic backtracking
+    # 老 pattern (\[[^\]]*\])\(([^)]*)\) 在 100KB `[[[...]]]` 上跑 2.7s（pattern 1KB → 64s）
     out = re.sub(
-        r"(\[[^\]]*\])\(([^)]*)\)",
+        r"(\[[^\[\]]*\])\(([^)]*)\)",
         lambda m: m.group(1) + "(" + " " * (len(m.group(2))) + ")",
         out,
     )
@@ -301,21 +308,36 @@ def _mask_line(line: str) -> str:
 
 
 _ZERO_WIDTH_PATTERN = re.compile(
-    r"[​‌‍⁠᠎﻿]"
+    # v0.4.3 (security R2 N1): 不只 ZWSP/ZWJ/ZWNJ/WJ/MVS/BOM，再扩展：
+    # U+00AD soft hyphen / U+034F CGJ / U+061C ALM / U+115F-1160 韩文 filler /
+    # U+17B4-17B5 KH zero-width / U+2028-2029 LS/PS / U+202A-202E 双向控制 /
+    # U+2066-2069 隔离符 / U+3164 韩文 filler / U+FE00-FE0F variation selectors /
+    # U+FFA0 韩文 filler / U+E0020-E007F tag chars / U+E0100-E01EF variation supp.
+    r"[­͏؜ᅟᅠ឴឵᠎​-‏  "
+    r"‪-‮⁠-⁤⁦-⁯ㅤ︀-️﻿ﾠ]"
+    r"|[\U000e0020-\U000e007f\U000e0100-\U000e01ef]"
 )
+
+# v0.4.3 (security N4): ANSI escape + 控制字符
+# 攻击者 markdown 嵌 \x1b[2J\x1b[H... 导致 CLI 输出 excerpt 时屏幕清屏 / osc52 剪贴板劫持
+_ANSI_AND_CTRL_PATTERN = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|[\x00-\x08\x0b-\x1f\x7f]")
 
 
 def _normalize_text(text: str) -> str:
-    """标准化换行符，剥 BOM，去 zero-width 字符。
+    """标准化换行符，剥 BOM，去 zero-width 字符与 ANSI/控制字符。
 
     v0.4.2: zero-width 字符（U+200B/200C/200D/2060/180E/FEFF）会绕过词典扫描——
     `赋​能` 在视觉上等价于「赋能」但 .find('赋能') 找不到。
     在最早归一化阶段全部剥掉，让后续规则只看到「真实」字符。
     BOM (FEFF) 也包含在内：在文档中间出现的 BOM 是攻击向量，不是合法编码标记。
+
+    v0.4.3 (security N4): 同步剥 ANSI escape sequences 与 C0/DEL 控制字符。
+    Violation.excerpt 直接打到 CLI 终端，攻击者能借此屏幕劫持 / osc52 剪贴板攻击。
     """
     if text.startswith("﻿"):
         text = text[1:]
     text = _ZERO_WIDTH_PATTERN.sub("", text)
+    text = _ANSI_AND_CTRL_PATTERN.sub("", text)
     return text.replace("\r\n", "\n").replace("\r", "\n")
 
 
@@ -360,11 +382,18 @@ def _scan_banned(
     *,
     word_boundary: bool = False,
 ) -> List[Violation]:
-    """字符串扫描；word_boundary=True 时要求前后字符都不是中文连续。
+    """字符串扫描；word_boundary=True 时对短词要求严格边界。
+
+    v0.4.3 hybrid 边界：
+    - 长度 ≥ 6 的整句套话（让我来为您解释 / 希望对你有帮助 / 这是一个非常好的问题）
+      走 substring 直接抓——这种长度不可能在合法中文里被「写好问题」式地误嵌入。
+    - 长度 ≤ 5 的短词（好问题 / 抛砖引玉 / 不当之处）走 AND 边界——「写好问题」前后
+      都是中文 → AND fail → 不抓；「好问题。」AND pass → 抓。
 
     word_boundary 适合「好问题」这种 — 防止「你好问题」误中。
     不适合「赋能」这种典型套话单元 — 它常出现在「全面赋能」中，需要被抓。
     """
+    LONG_PHRASE_THRESHOLD = 6  # ≥ 此长度直接 substring 抓
     out: List[Violation] = []
     for i, masked in enumerate(ctx.masked_lines):
         if ctx.fence_map[i]:
@@ -375,11 +404,8 @@ def _scan_banned(
                 col = masked.find(w, start)
                 if col < 0:
                     break
-                if word_boundary:
-                    # 词边界严格检查（v0.4.2 改 OR → AND）：
-                    # OR 在「写好问题」这种动宾组合上误抓（写=中文，问题后=EOL=非中文，OR 通过）
-                    # AND 要求前后都不是中文，「好问题。」（前是「，」/EOL/标点，后是「。」）才抓
-                    # 边缘 case：「这是好问题」前是「是」（中文）→ AND 漏抓——但 review 提示用户改写即可
+                # 长套话直接抓；短词在 word_boundary 模式下走 AND
+                if word_boundary and len(w) < LONG_PHRASE_THRESHOLD:
                     before_ok = not _is_chinese_neighbor(masked, col - 1)
                     after_ok = not _is_chinese_neighbor(masked, col + len(w))
                     if not (before_ok and after_ok):

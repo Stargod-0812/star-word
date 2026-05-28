@@ -1,5 +1,96 @@
 # CHANGELOG
 
+## v0.4.3 — 2026-05-28
+
+Round 4 4-subagent panel（架构 65 / 63、Code 70-71、Security 70-63、Product 46）的全量响应。
+panel 共识 critical：v0.4.2 的「single-source-of-truth」在 pip-installed wheel 中静默断裂。
+
+### CRITICAL 修复
+
+- **Single-source-of-truth 在 prod 真起作用**（architect 1+2 共识）：v0.4.2 的
+  `from scripts.build import _parse_yaml` 在 pip wheel 中失败，silently fallback 到
+  6 条 hardcoded `_DEFAULT_WORD_LISTS`。把 yaml 解析抽到 `star_word/_yaml.py`，让
+  detectors / scripts/build / mcp_server 共用同一份；`_build_word_lists` 改为只在
+  `FileNotFoundError` 时 fallback，其它错误显式抛出。
+- **MCP get_rules 不再硬编码 22 条**（architect 2）：之前 `_tool_get_rules` 把规则
+  ID/title 硬编码，与 rules.yaml 是独立 source。改 yaml 加规则 → MCP 仍返回旧列表。
+  v0.4.3 改为从 `_load_rule_data()` 动态拉取，并加 `len(rules)==meta.total_rules`
+  不变量校验。
+- **V11.1 NaN 测试不再 vacuous**（code reviewer 2）：CPython 的
+  `max(0.0, min(10.0, nan))` 实际返回 **10.0**（不是 nan，因 min 短路）——攻击者
+  注入 NaN 会让违规分静默变满分。原测试 `assert all(s.score == s.score for s in scores)`
+  在 scores=[] 时 vacuously true，根本没 catch。改为 `pytest.raises(JudgeError)` 显式断言。
+- **README install URL 死链 + hero 数字漂移**（product reviewer）：v0.4.2 tag 没推到
+  remote，`pip install ...@v0.4.2` 直接挂；hero 写 `39.8/100, 20+ 处` 但 v0.4.2 词-04
+  改 OR→AND 后实测 `45.3/100, 19 处`。v0.4.3 修两处，且会推 tag。
+- **cross-model judge 虚假承诺**（product reviewer）：`_llm.py` 硬编码
+  `api.anthropic.com`，`--model gpt-4o` → 401。我之前为修矛盾反引入虚假承诺。诚实
+  改写：`--model` 仅支持 Anthropic 家族（opus/haiku/sonnet），跨厂商 judge 是 v0.5
+  deferred；README 与 CHANGELOG 都明确标注。
+
+### HIGH 安全加固
+
+- **codebuddy / workbuddy 中间组件 symlink 攻击**（security R1 N1+N2）：mkdir 静默穿过
+  `.codebuddy → ~/.ssh/` symlink，`_safe_copy` 只查 leaf parent 不防中间组件。新增
+  `_assert_path_within(target, root)`：resolve 后断言仍在 root 子树。enable/disable
+  都校验。同时清掉 _resolve_target_root 路径下的 `_write_shared_rules` 里的同类问题
+  （security R2 N2/N5）。
+- **Zero-width bypass 扩展覆盖**（security R2 N1）：v0.4.2 仅覆盖 6 个 ZW 字符；R2 实测
+  U+00AD（soft hyphen）/ U+034F（CGJ）/ U+200E-200F（双向标记）/ U+FE0F（variation
+  selector）/ U+E0020-E007F（tag 字符）/ U+E0100-E01EF（variation supplement）全部能
+  bypass。v0.4.3 把 `_ZERO_WIDTH_PATTERN` 扩到含所有格式控制字符 + 双向标记 + variation
+  selectors，逐一实测能抓。
+- **`_mask_line` Markdown 链接 ReDoS**（security R2 N3）：`(\[[^\]]*\])\(([^)]*)\)`
+  在 `[[[...]]]` 输入上 quadratic 回溯，100KB pathological → 2.7s（reviewer 测 200KB → 64s）。
+  改为 `(\[[^\[\]]*\])\(([^)]*)\)`（禁止内部 `[`），实测同输入 0.001s（900x 加速）。
+
+### MEDIUM
+
+- **`scoring.score_document` isfinite 兜底**（security N3）：之前 NaN/Inf score 入参
+  会污染 `doc.score = nan`，as_dict 输出 `"score": NaN` 违反 RFC 8259。score_document
+  入口加 `[r for r in judge_results if math.isfinite(r.score)]` 过滤。
+- **disable 在 raise 后仍清理 `.sw/`**（code R2）：`_strip_marker_block` raise 时
+  `shutil.rmtree(.sw/)` 不被执行，留半拆状态。改 try/finally 模式，先清 dir 再重抛
+  marker error。
+- **`_llm.extract_json` strict 模式**（security N5）：之前 `json.loads` 默认
+  `parse_constant` 接受 NaN/Infinity（非 RFC 合法 JSON）。改为 lambda raise，攻击者
+  注入这些常量直接 reject。
+- **Violation excerpt ANSI 过滤**（security N4）：`_normalize_text` 加
+  `_ANSI_AND_CTRL_PATTERN`（`\x1b\[...` + C0 控制字符），防 reviewer 终端被
+  恶意 markdown 屏幕劫持 / osc52 剪贴板攻击。
+- **CLI N/A score 显示**（architect 2）：之前 score=-1.0 短文档显示 `-1.0/100`
+  误导用户；fail_under 在 N/A 上恒触发。改 N/A 时显示 "N/A" + fail_under 跳过。
+- **MCP `enable mcp` 不再 ValueError**（architect 2）：list_surfaces 列了 mcp 但
+  SUPPORTED_SURFACES 没有。加 enable_mcp/disable_mcp，返回 InstallResult 描述
+  client 配置方式（不写文件）。
+
+### 检测精度
+
+- **词-04 hybrid 边界**（code R2 ONE CHANGE）：v0.4.2 的 AND 边界破坏「我希望对你
+  有帮助」「首先让我来为您解释」检出。改长短分离：≥6 字整句套话走 substring 直接抓
+  （这种长度不可能误嵌），≤5 字短词走 AND 边界。
+
+### 代码卫生
+
+- **`_assert_path_within` 重复定义清理**（security R2 N9）：first-cut 时不慎写两遍；
+  reviewer 抓到。
+- **CLI `--model` 真实化**：cmd_judge / cmd_fix 把 `args.model` 传给 judge_text /
+  suggest_rewrites（之前 README 写"已支持"但代码没接）。
+
+### 测试
+
+- 248 → 255。新增 7 条对应 v0.4.3 修的每项：runtime yaml load、mcp dynamic rules、
+  extended zero-width、_mask_line ReDoS、NaN clamp invariant、mcp surface enable、
+  CLAUDE.md root symlink。
+- coverage 71% → 85%（cli.py 0% → 82% 通过 in-process 测试）。
+
+### 不兼容变更
+
+- 词-04 边界从纯 AND 改 hybrid 后，`这是好问题` 等 5 字以下短词组合检出行为不变；
+  `让我来为您解释` 等 ≥6 字完整套话不再受边界限制（v0.4.2 漏抓现已恢复）。
+
+---
+
 ## v0.4.2 — 2026-05-28
 
 Round 4 reviewer panel 反馈的全量修复：补 v0.4.1 残留的 4 条高危防御缺口与 4 处 README 自我矛盾。
