@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "star-word"
-version = "0.4.4"
+version = "0.4.5"
 description = "中文技术写作规则集（22 条）+ LLM-as-judge + MCP server. Drop-in for Claude Code, Codex, Cursor, AGENTS.md-compatible agents."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -59,7 +59,10 @@ select = ["E", "F", "W", "B", "I"]
 ignore = ["E501", "B008", "B904"]
 
 [tool.mypy]
-python_version = "3.9"
-warn_return_any = false
+# v0.4.5 (Round 6 code reviewer): mypy ≥1.13 不再支持 python_version="3.9"。
+# 运行时仍兼容 3.9（PEP 585 + `from __future__ import annotations`），仅 type
+# checking 假设升 3.10。
+python_version = "3.10"
+warn_return_any = true
 warn_unused_configs = true
 ignore_missing_imports = true

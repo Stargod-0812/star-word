@@ -1,5 +1,61 @@
 # CHANGELOG
 
+## v0.4.5 — 2026-05-28
+
+**焦点转向产品本质效果**：reviewer panel 的 6 轮迭代把代码质量推到 ~70/100，但用户
+直接 reframe — reviewer 评分不是核心，**「AI 味是否真彻底去掉」+「skill 负担是否
+够小」**才是。本版本：(1) 关闭 Round 6 architect 抓到的最后一个 path-symlink critical；
+(2) 新增 effectiveness bench 用真数据回答用户的两个核心问题。
+
+### Effectiveness 验证（bench/effectiveness.md）
+
+3 个典型 LLM 中文输出（Redis 迁移 / 接口超时 / 索引优化）：
+
+| 样本 | LLM 原文 | 改写后 | 提升 |
+|---|---|---|---|
+| Redis 集群迁移 | 58.0 | 100.0 | +42.0 |
+| 接口超时排查 | 39.9 | 100.0 | +60.1 |
+| 数据库索引优化 | 46.7 | 100.0 | +53.3 |
+| **平均** | **48.2** | **100.0** | **+51.8** |
+
+LLM 原文命中的 AI 味类型量化（平均/篇）：词-01 空洞价值词 4.3 处、词-02 AI 过渡套话
+5.0 处、词-03 铺垫开场 1.3 处、词-04 讨好式 1.7 处、词-08 拟人化 2.0 处。
+
+### Skill 负担测量（bench/effectiveness.md §2）
+
+claude-code adapter ~3700 token（adapter 1370 字符 + 规则正文 6182 字符），占 Claude
+Sonnet 4.5 上下文（200k token）**1.85%**。其它 surface adapter 1147-1657 字符不等。
+
+### 安全 CRITICAL（architect Round 6）
+
+- **`_write_shared_rules` 漏修同 v0.4.3 bug**：v0.4.4 给 codebuddy/workbuddy 加了
+  `_assert_no_symlink_in_path`，但 `_write_shared_rules`（claude-code/agents-md/codex
+  共用）只检查 leaf `.sw/` 是否 symlink，没检查 root 自身。攻击者预置 `~/.claude → /attacker_dir`
+  → enable_claude_code 仍能写入 attacker。**修法**：抽出 `_secure_mkdir(root, *sub_parts)`
+  单点收口，所有 surface 都走同一道门，结构性消除「漏抄一行」回归风险。
+
+### Code 质量
+
+- **mypy --strict 41 → 15 errors**（架构 + 接入面 + 解析器全清，剩 cli/mcp_server
+  入口未注解 + rewriter 类型修复 — v0.4.6 收尾）
+- **pyproject Python 3.9 / mypy py39 矛盾**：`[tool.mypy] python_version = "3.10"`
+  解开矛盾（运行时仍 3.9 兼容，PEP 585 + `from __future__ import annotations`）
+
+### Product
+
+- **README 加 effectiveness 块**：把 hero 数字从「单文件 45.3/100」改成「3 个 LLM
+  原文 48.2 → 改写 100.0」的对比，product reviewer Round 5/6 反复点的「hero 没标 mode」
+  + 「零 bench 数据」一并解决
+- **README 加 vs 其他工具对比段**：Vale.sh / 盘古之白 / autocorrect / PromptFoo / DeepEval
+  四个明显竞品对比表，product reviewer ONE CHANGE
+- **README v0.4.3 stale ref → v0.4.4**
+
+### 测试
+
+- 273 个测试全过、ruff 干净、build 同步
+
+---
+
 ## v0.4.4 — 2026-05-28
 
 Round 5 4-subagent panel（架构 60-63、Code 65-68、Security 57、Product 74）的全量响应。

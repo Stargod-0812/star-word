@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, List, Optional
 
 # -------- 权重表 --------
 
@@ -99,7 +99,7 @@ class DocumentScore:
     groups: List[GroupScore] = field(default_factory=list)
     notes: List[str] = field(default_factory=list)
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, Any]:
         return {
             "score": round(self.score, 1) if self.score >= 0 else None,
             "char_count": self.char_count,
@@ -157,7 +157,7 @@ def score_rule(
 
 
 def score_document(
-    results,  # List[RuleResult] from detectors
+    results: list[Any],  # List[RuleResult] from detectors
     text: str,
     mode: str = "normal",
     judge_results: Optional[List[RuleScore]] = None,

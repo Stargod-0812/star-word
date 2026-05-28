@@ -22,6 +22,38 @@ import urllib.error
 import urllib.request
 from typing import Any, Optional
 
+__all__ = [
+    "LLMError",
+    "DEFAULT_MAX_INPUT_CHARS",
+    "json",
+    "sanitize_error",
+    "get_api_key",
+    "get_default_model",
+    "wrap_user_content",
+    "call_anthropic",
+    "extract_text_block",
+    "extract_json",
+    "enforce_input_limit",
+    "strip_control_chars",
+]
+
+
+__all__ = [
+    "LLMError",
+    "DEFAULT_MAX_INPUT_CHARS",
+    "json",
+    "sanitize_error",
+    "get_api_key",
+    "get_default_model",
+    "wrap_user_content",
+    "call_anthropic",
+    "extract_text_block",
+    "extract_json",
+    "enforce_input_limit",
+    "strip_control_chars",
+]
+
+
 # 输入大小硬上限：避免恶意/失误把超大文档丢进 LLM 烧 token
 DEFAULT_MAX_INPUT_CHARS = 50000
 
@@ -96,7 +128,7 @@ def call_anthropic(
     max_tokens: int = 2000,
     timeout: int = 60,
     max_retries: int = 2,
-) -> dict:
+) -> dict[str, Any]:
     """POST 到 Anthropic Messages API，带退避重试。
 
     重试策略：
@@ -127,7 +159,8 @@ def call_anthropic(
                 method="POST",
             )
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return json.loads(resp.read().decode("utf-8"))
+                result: dict[str, Any] = json.loads(resp.read().decode("utf-8"))
+                return result
         except urllib.error.HTTPError as e:
             err_body = ""
             try:
@@ -152,7 +185,7 @@ def call_anthropic(
 # -------- 输出抽取 --------
 
 
-def extract_text_block(api_response: dict) -> str:
+def extract_text_block(api_response: dict[str, Any]) -> str:
     """从 Anthropic Messages 响应中提取所有 text 块拼接的内容。
 
     多模态 / tool_use 场景下 content 可能不是单纯 text，需要遍历。
@@ -177,13 +210,14 @@ def extract_json(text: str) -> dict[str, Any]:
     v0.4.3 安全（security N5）：用 parse_constant 拒绝 NaN / Infinity / -Infinity——
     这些不是 RFC 8259 合法 JSON。攻击者注入这些常量到模型响应里能在下游污染 score。
     """
-    def _strict_parse(s: str) -> dict:
-        return json.loads(
+    def _strict_parse(s: str) -> dict[str, Any]:
+        result: dict[str, Any] = json.loads(
             s,
             parse_constant=lambda c: (_ for _ in ()).throw(
                 ValueError(f"strict JSON: {c} not allowed")
             ),
         )
+        return result
 
     # Try fenced JSON first
     fenced_match = re.search(r"```(?:json|JSON)?\s*(\{.*?\})\s*```", text, re.DOTALL)

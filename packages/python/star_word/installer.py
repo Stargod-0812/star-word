@@ -121,22 +121,44 @@ def _assert_path_within(target: Path, root: Path) -> None:
             )
 
 
+def _secure_mkdir(intended_root: Path, *sub_parts: str) -> Path:
+    """v0.4.5 (architect Round 6 critical): 单点收口的安全 mkdir。
+
+    所有 surface 都走这道门，避免漏抄三段式 guard：
+    1. 先 walk intended_root + sub_parts 的所有 ancestor，遇 symlink raise
+    2. mkdir(parents=True, exist_ok=True)
+    3. 用 _assert_path_within 二次校验
+
+    返回创建好的 leaf 路径。
+
+    用法：
+        target = _secure_mkdir(Path.cwd() / ".codebuddy", "rules", "star-word")
+        # target = Path.cwd() / ".codebuddy" / "rules" / "star-word"，已 mkdir，已校验
+
+    architect Round 6 抓到的关键漏洞：v0.4.4 给 codebuddy/workbuddy 加了
+    _assert_no_symlink_in_path，但忘了给 _write_shared_rules（claude-code/agents-md
+    路径）加。结构性原因是三段式 guard 手抄 4 份。本函数把它们统一。
+    """
+    target = intended_root.joinpath(*sub_parts) if sub_parts else intended_root
+    _assert_no_symlink_in_path(target)
+    target.mkdir(parents=True, exist_ok=True)
+    _assert_path_within(target, intended_root)
+    return target
+
+
 def _write_shared_rules(root: Path) -> None:
     """把 rules.md 与 adapter 写到 <root>/.sw/。
 
-    v0.4.3 (security R2 N2): 校验 store 实际解析后仍在 root 内——防 root 本身或其
-    祖先组件是 symlink 指向 attacker dir，让 .sw/* 落地越权。
+    v0.4.5 (architect Round 6 CRITICAL): 走 _secure_mkdir 单点门——之前 v0.4.4 给
+    codebuddy/workbuddy 加了 ancestor walk 但漏了这里，root 是 symlink → attacker
+    时仍能写入 attacker dir。
     """
-    store = root / STORE_DIR_NAME
-    if store.is_symlink():
-        # 如果 .sw/ 本身是 symlink 指向其他目录，拒绝
+    if (root / STORE_DIR_NAME).is_symlink():
+        # leaf .sw/ 是 symlink 仍然单独 raise，给用户更清晰的错误信息
         raise ValueError(
-            f"{store} 是 symlink；拒绝写入。"
-            "请删除 symlink 后再试。"
+            f"{root / STORE_DIR_NAME} 是 symlink；拒绝写入。请删除 symlink 后再试。"
         )
-    store.mkdir(parents=True, exist_ok=True)
-    # mkdir 后才能 resolve；防 root 是 symlink 指向 attacker dir
-    _assert_path_within(store, root)
+    store = _secure_mkdir(root, STORE_DIR_NAME)
     _safe_copy(_data_path("RULES.md"), store / "rules.md")
     _safe_copy(_data_path("adapters", "claude-code.md"), store / "claude.md")
     yaml_src = DATA_DIR / "rules.yaml"
@@ -370,12 +392,7 @@ def enable_codebuddy(global_scope: bool = False) -> InstallResult:
         intended_root = Path.home() / ".codebuddy"
     else:
         intended_root = Path.cwd() / ".codebuddy"
-    rule_dir = intended_root / "rules" / "star-word"
-    # v0.4.4 (Round 5 security CRITICAL V1): mkdir 之前 walk ancestors，否则
-    # mkdir(parents=True) 静默跟随 .codebuddy → /attacker_dir symlink 穿透。
-    _assert_no_symlink_in_path(rule_dir)
-    rule_dir.mkdir(parents=True, exist_ok=True)
-    _assert_path_within(rule_dir, intended_root)
+    rule_dir = _secure_mkdir(intended_root, "rules", "star-word")
     target = rule_dir / "RULE.mdc"
     _safe_copy(_data_path("adapters", "codebuddy.md"), target)
     return InstallResult(
@@ -419,10 +436,7 @@ def enable_workbuddy(global_scope: bool = False) -> InstallResult:
     v0.4.4: mkdir 之前 walk ancestor 验证无 symlink。
     """
     intended_root = Path.home() / ".workbuddy"
-    skill_dir = intended_root / "skills" / "star-word"
-    _assert_no_symlink_in_path(skill_dir)
-    skill_dir.mkdir(parents=True, exist_ok=True)
-    _assert_path_within(skill_dir, intended_root)
+    skill_dir = _secure_mkdir(intended_root, "skills", "star-word")
     target = skill_dir / "SKILL.md"
     _safe_copy(_data_path("adapters", "workbuddy.md"), target)
     return InstallResult(
@@ -511,7 +525,7 @@ def disable(surface: str, global_scope: bool = False) -> InstallResult:
     return SUPPORTED_SURFACES[surface][1](global_scope)
 
 
-def list_surfaces() -> list[dict]:
+def list_surfaces() -> list[dict[str, str]]:
     return [
         {"surface": "claude-code", "mode": "anchor-import", "target": "CLAUDE.md"},
         {"surface": "agents-md", "mode": "guarded-block", "target": "AGENTS.md"},

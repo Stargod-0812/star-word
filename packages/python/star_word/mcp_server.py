@@ -112,7 +112,7 @@ def _validate_text_arg(args: Any, key: str = "text") -> str:
     return text
 
 
-def _validate_mode(args: dict, default: str = "normal") -> str:
+def _validate_mode(args: dict[str, Any], default: str = "normal") -> str:
     mode = args.get("mode", default)
     if mode not in ("strict", "normal", "relaxed"):
         raise InvalidParams(f"mode 必须是 strict/normal/relaxed，收到 {mode!r}")
@@ -122,7 +122,7 @@ def _validate_mode(args: dict, default: str = "normal") -> str:
 # -------- 工具实现 --------
 
 
-def _tool_review_text(args: dict) -> dict:
+def _tool_review_text(args: dict[str, Any]) -> dict[str, Any]:
     text = _validate_text_arg(args)
     mode = _validate_mode(args)
     results = detectors.review(text)
@@ -144,7 +144,7 @@ def _tool_review_text(args: dict) -> dict:
     }
 
 
-def _tool_judge_text(args: dict) -> dict:
+def _tool_judge_text(args: dict[str, Any]) -> dict[str, Any]:
     text = _validate_text_arg(args)
     rule_ids = args.get("rules")
     if rule_ids is not None:
@@ -166,7 +166,7 @@ def _tool_judge_text(args: dict) -> dict:
     }
 
 
-def _tool_get_rules(args: dict) -> dict:
+def _tool_get_rules(args: dict[str, Any]) -> dict[str, Any]:
     """从 rules.yaml 动态加载规则列表，避免与 yaml 漂移。
 
     v0.4.3 (architect critical 2): 之前硬编码 22 条规则的 (id, title, group, detect)
@@ -207,7 +207,7 @@ def _tool_get_rules(args: dict) -> dict:
     return {"version": __version__, "rules": rules}
 
 
-def _tool_suggest_rewrite(args: dict) -> dict:
+def _tool_suggest_rewrite(args: dict[str, Any]) -> dict[str, Any]:
     text = _validate_text_arg(args)
     max_v = args.get("max_violations", 20)
     if not isinstance(max_v, int) or max_v < 1 or max_v > 100:
@@ -242,15 +242,15 @@ TOOL_HANDLERS = {
 # -------- JSON-RPC 协议 --------
 
 
-def _make_response(req_id: Any, result: Any) -> dict:
+def _make_response(req_id: Any, result: Any) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": req_id, "result": result}
 
 
-def _make_error(req_id: Any, code: int, message: str) -> dict:
+def _make_error(req_id: Any, code: int, message: str) -> dict[str, Any]:
     return {"jsonrpc": "2.0", "id": req_id, "error": {"code": code, "message": message}}
 
 
-def handle_request(req: Any) -> Optional[dict]:
+def handle_request(req: Any) -> Optional[dict[str, Any]]:
     """处理 JSON-RPC 请求。返回 None = notification（不需回复）。"""
     if not isinstance(req, dict):
         return _make_error(None, -32600, "Invalid Request: 必须是 JSON 对象")
@@ -278,7 +278,10 @@ def handle_request(req: Any) -> Optional[dict]:
         elif method == "tools/call":
             if not isinstance(params, dict):
                 return _make_error(req_id, -32602, "params 必须是 object")
-            name = params.get("name")
+            name_raw = params.get("name")
+            if not isinstance(name_raw, str):
+                return _make_error(req_id, -32602, "params.name 必须是字符串")
+            name = name_raw
             arguments = params.get("arguments", {})
             handler = TOOL_HANDLERS.get(name)
             if not handler:

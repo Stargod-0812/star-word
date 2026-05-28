@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, List, Optional
+from typing import Any, Callable, List, Optional
 
 # 输入字符上限——超过抛错（CLI 在 review() 入口校验）
 MAX_INPUT_CHARS = 2_000_000  # ~2MB markdown，远超合理文档
@@ -34,7 +34,7 @@ class Violation:
     col: int
     excerpt: str
 
-    def as_dict(self) -> dict:
+    def as_dict(self) -> dict[str, Any]:
         return {
             "rule_id": self.rule_id,
             "message": self.message,
@@ -63,7 +63,7 @@ class ScanContext:
 # -------- 词典：从 rules.yaml 运行时加载，避免与 yaml 漂移 --------
 
 
-def _load_rule_data() -> dict:
+def _load_rule_data() -> dict[str, Any]:
     """加载 packaged rules.yaml。优先 PyYAML，fallback 自带极简 parser。
 
     v0.4.3: 解析逻辑统一移到 ._yaml.parse_yaml。之前 fallback 是
@@ -104,7 +104,7 @@ def _build_word_lists() -> dict[str, List[str]]:
     return out
 
 
-def _build_grey_zones() -> dict[str, dict]:
+def _build_grey_zones() -> dict[str, dict[str, Any]]:
     """从 rules.yaml 加载 grey_zone 上下文。
 
     yaml 里的 grey_zone 是对 word + note 的描述，但 ban/allow contexts 仍由代码维护
@@ -423,7 +423,7 @@ def _scan_banned(
 
 
 def _scan_context_aware(
-    ctx: ScanContext, rule_id: str, context_map: dict, label: str
+    ctx: ScanContext, rule_id: str, context_map: dict[str, Any], label: str
 ) -> List[Violation]:
     """grey_zone 上下文感知扫描（修复版）.
 

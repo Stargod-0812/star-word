@@ -15,6 +15,52 @@ after.md   →  评分 100.0/100  A 级  零违规
 corpus/*   →  评分 100.0/100  A 级（5 篇正向语料，strict 模式过）
 ```
 
+```
+3 个典型 LLM 中文输出（Redis 迁移 / 接口超时 / 索引优化）：
+  原文（带"赋能/闭环/综上所述/希望对你有帮助"等 16-17 处 AI 味）→ 平均 48.2/100，F 级
+  改写（agent 接入 star-word 后）                          → 平均 100.0/100，A 级
+adapter 接入开销：~3700 token，占 200k 上下文 1.85%
+```
+
+完整数据见 [`bench/effectiveness.md`](bench/effectiveness.md)。
+
+---
+
+## vs 其他工具
+
+|  | star-word | Vale.sh | 盘古之白 / autocorrect | PromptFoo / DeepEval |
+|---|---|---|---|---|
+| 处理目标 | LLM 中文 AI 味 | 英文 prose | 中英文排版 / 标点 | LLM 输出评测 |
+| 中文支持 | ✓ 22 条规则 | 仅英文 | ✓ 但只管格式 | 通用 |
+| 语义层 | ✓ LLM-as-judge | 模板规则 | 无 | ✓ 但需自己写 prompt |
+| Agent 接入 | ✓ 6 surface（含 MCP） | 无 | 无 | 无 |
+| 0-100 评分 | ✓ | 无 | 无 | 自定义 |
+
+niche：**中文** + **agent 生成时注入** + **LLM-as-judge 审阅时打分** + **MCP 一键接 Claude Desktop** 三合一。
+
+```
+3 个典型 LLM 中文输出（Redis 迁移 / 接口超时 / 索引优化）：
+  原文（带"赋能/闭环/综上所述/希望对你有帮助"等 16-17 处 AI 味）→ 平均 48.2/100，F 级
+  改写（agent 接入 star-word 后）                          → 平均 100.0/100，A 级
+adapter 接入开销：~3700 token，占 200k 上下文 1.85%
+```
+
+完整数据见 [`bench/effectiveness.md`](bench/effectiveness.md)。
+
+---
+
+## vs 其他工具
+
+|  | star-word | Vale.sh | 盘古之白 / autocorrect | PromptFoo / DeepEval |
+|---|---|---|---|---|
+| 处理目标 | LLM 中文 AI 味 | 英文 prose | 中英文排版 / 标点 | LLM 输出评测 |
+| 中文支持 | ✓ 22 条规则 | 仅英文 | ✓ 但只管格式 | 通用 |
+| 语义层 | ✓ LLM-as-judge | 模板规则 | 无 | ✓ 但需自己写 prompt |
+| Agent 接入 | ✓ 6 surface（含 MCP） | 无 | 无 | 无 |
+| 0-100 评分 | ✓ | 无 | 无 | 自定义 |
+
+niche：**中文** + **agent 生成时注入** + **LLM-as-judge 审阅时打分** + **MCP 一键接 Claude Desktop** 三合一。
+
 ---
 
 ## 60 秒安装
@@ -150,7 +196,7 @@ $ ANTHROPIC_API_KEY=sk-... star-word judge docs/RFC.md
 文档分: 84.2/100  等级: B
 ```
 
-判 judge 用什么模型不重要——重要的是**严禁让被测模型 judge 自己**（self-preference）。当前 v0.4.3 的 `--model` 参数仅支持 Anthropic 家族（`claude-opus-4-5` / `claude-haiku-4-5` / `claude-sonnet-4-5`）；要避开 self-preference 必须把被测模型与 judge 模型分到 Anthropic 家族内不同 tier（例如被测 sonnet → judge 用 opus）。**OpenAI / Gemini / DeepSeek 跨厂商 judge 仍是 deferred**：`_llm.py` 当前硬编码 `api.anthropic.com`，跨厂商需要 v0.5 重构 provider 抽象层。详见 [`bench/methodology.md`](bench/methodology.md)。
+判 judge 用什么模型不重要——重要的是**严禁让被测模型 judge 自己**（self-preference）。当前 v0.4.4 的 `--model` 参数仅支持 Anthropic 家族（`claude-opus-4-5` / `claude-haiku-4-5` / `claude-sonnet-4-5`）；要避开 self-preference 必须把被测模型与 judge 模型分到 Anthropic 家族内不同 tier（例如被测 sonnet → judge 用 opus）。**OpenAI / Gemini / DeepSeek 跨厂商 judge 仍是 deferred**：`_llm.py` 当前硬编码 `api.anthropic.com`，跨厂商需要 v0.5 重构 provider 抽象层。详见 [`bench/methodology.md`](bench/methodology.md)。
 
 ### 4. MCP server（一键接入 Claude Desktop / Cursor）
 

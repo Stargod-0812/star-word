@@ -28,7 +28,7 @@ def parse_yaml(text: str) -> dict[str, Any]:
     单一来源：detectors / scripts/build 都用此函数，不再有 silent fallback 路径。
     """
     try:
-        import yaml  # type: ignore
+        import yaml
 
         result = yaml.safe_load(text)
         if result is None:
@@ -46,7 +46,7 @@ def parse_yaml(text: str) -> dict[str, Any]:
     return parsed
 
 
-def _parse_inline_dict(s: str) -> dict:
+def _parse_inline_dict(s: str) -> dict[str, Any]:
     """解析 YAML inline dict: { key: value, key: value }."""
     s = s.strip()
     if s.startswith("{"):
@@ -75,7 +75,7 @@ def _yaml_parse_block(
     """解析一个 YAML 块，返回 (value, next_line_index)。深度上限 64 防恶意 yaml。"""
     if depth > 64:
         raise ValueError("YAML 嵌套过深（>64 层）；可能是攻击或文件损坏。")
-    result: dict | list | None = None
+    result: dict[str, Any] | list[Any] | None = None
     i = start
     while i < len(lines):
         raw = lines[i]
@@ -93,10 +93,11 @@ def _yaml_parse_block(
         if stripped.startswith("- "):
             if result is None:
                 result = []
+            assert isinstance(result, list)  # mypy narrow
             item_text = stripped[2:]
             if ":" in item_text and not item_text.startswith("{"):
                 key, _, val = item_text.partition(":")
-                obj: dict = {}
+                obj: dict[str, Any] = {}
                 if val.strip():
                     obj[key.strip()] = _yaml_scalar(val.strip())
                 elif i + 1 < len(lines):
