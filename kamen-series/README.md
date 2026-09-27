@@ -26,7 +26,7 @@
 | 02-驯服 | `kamen-series/02-驯服/02-驯服_全文.txt` | 92,313 |
 | 03-收服 | `kamen-series/03-收服/03-收服_全文.txt` | 114,534 |
 | 04-迷魂 | `kamen-series/04-迷魂/04-迷魂_全文.txt` | 82,659 |
-| 05-归魂 | `kamen-series/05-归魂/05-归魂_全文.txt` | 见合并文件统计 |
+| 05-归魂 | `kamen-series/05-归魂/05-归魂_全文.txt` | 约 96,000 |
 
 分章草稿：`kamen-series/05-归魂/parts/part-01.md` … `part-10.md`（及终章增补）
 
